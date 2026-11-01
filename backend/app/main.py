@@ -138,14 +138,45 @@ def _spark(db: Session, product_ids: list[str]) -> dict[str, list[float]]:
 
 
 # ------------------------------------------------------------------------- routes
+def _key_shape(k: str) -> dict:
+    """Describe a key's shape without revealing it, to diagnose bad pastes."""
+    import re
+    return {
+        "length": len(k),
+        "uuid_like": bool(re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", k)),
+        "hex64_like": bool(re.fullmatch(r"[0-9a-fA-F]{64}", k)),
+        "dashes": k.count("-"),
+        "whitespace_inside": bool(re.search(r"\s", k)),
+        "non_hex_chars": len(re.findall(r"[^0-9a-fA-F-]", k)),
+    }
+
+
+@app.get("/api/brightdata-check")
+async def brightdata_check() -> dict:
+    """Asks Bright Data whether the configured key is accepted (status code only)."""
+    import httpx
+    if not settings.brightdata_api_key:
+        return {"configured": False}
+    async with httpx.AsyncClient(timeout=20) as c:
+        r = await c.get("https://api.brightdata.com/zone/get_active_zones",
+                        headers={"Authorization": f"Bearer {settings.brightdata_api_key}"})
+    zones = []
+    if r.status_code == 200:
+        try:
+            zones = [z.get("name") for z in r.json()]
+        except Exception:
+            pass
+    return {"configured": True, "status": r.status_code, "zones": zones,
+            "serp_zone_found": settings.brightdata_serp_zone in zones}
+
+
 @app.get("/api/health")
 def health() -> dict:
     return {
         "ok": True,
         "brightdata": settings.brightdata_ready,
         # Shape only (never the value), to spot mis-pasted keys.
-        "key_shape": {"length": len(settings.brightdata_api_key),
-                      "uuid_like": bool(__import__("re").fullmatch(r"[0-9a-fA-F-]{36}", settings.brightdata_api_key))},
+        "key_shape": _key_shape(settings.brightdata_api_key),
         "serp_zone": settings.brightdata_serp_zone or None,
         "unlocker": bool(settings.brightdata_unlocker_zone),
         "captioner": settings.llm_provider if settings.llm_provider != "none" else None,
