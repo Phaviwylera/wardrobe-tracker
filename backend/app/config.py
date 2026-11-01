@@ -59,7 +59,10 @@ class Settings(BaseSettings):
 
     @property
     def sqlalchemy_url(self) -> str:
-        url = self.database_url
+        url = (self.database_url or "").strip()
+        if not url:
+            # No database configured yet: temporary SQLite (lost on restart). Set DATABASE_URL to keep history.
+            url = "sqlite:////tmp/styletrail.db"
         # Render hands out postgres:// URLs; SQLAlchemy + psycopg3 wants postgresql+psycopg://
         if url.startswith("postgres://"):
             url = "postgresql+psycopg://" + url[len("postgres://"):]
