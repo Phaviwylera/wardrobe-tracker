@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     alert_from: str = ""
 
     def model_post_init(self, _ctx) -> None:
+        # Values pasted into dashboards often carry spaces, newlines or quotes.
+        for f in ("brightdata_api_key", "brightdata_serp_zone", "brightdata_unlocker_zone",
+                  "brightdata_customer_id", "brightdata_serp_zone_password", "anthropic_api_key", "admin_token"):
+            v = getattr(self, f) or ""
+            setattr(self, f, v.strip().strip('"').strip("'").strip())
         # On Render, web services get RENDER_EXTERNAL_URL automatically; use it so Lens can fetch uploads.
         import os
         ext = os.getenv("RENDER_EXTERNAL_URL")
