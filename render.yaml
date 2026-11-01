@@ -1,0 +1,97 @@
+# StyleTrail on Render: Next.js web app, FastAPI API, price-refresh cron, Postgres.
+# Secrets marked `sync: false` are asked for when you create the Blueprint
+# (enter the Bright Data values for both the API and the cron job).
+projects:
+  - name: styletrail
+    environments:
+      - name: production
+        databases:
+          - name: styletrail-db
+            plan: basic-256mb
+            region: singapore
+            postgresMajorVersion: "16"
+
+        envVarGroups:
+          - name: styletrail-settings
+            envVars:
+              - key: COUNTRY
+                value: in
+              - key: LLM_PROVIDER
+                value: none          # set to anthropic or bedrock to enable garment captions
+
+        services:
+          - type: web
+            name: styletrail-api
+            runtime: python
+            region: singapore
+            plan: standard           # 2 GB RAM: OpenCV feature matching runs in-process
+            rootDir: backend
+            buildCommand: pip install -r requirements.txt
+            startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers
+            healthCheckPath: /api/health
+            autoDeployTrigger: commit
+            maxShutdownDelaySeconds: 120   # let running searches finish on deploy
+            envVars:
+              - key: PYTHON_VERSION
+                value: "3.12.7"
+              - key: DATABASE_URL
+                fromDatabase:
+                  name: styletrail-db
+                  property: connectionString
+              - key: ADMIN_TOKEN
+                generateValue: true
+              - key: BRIGHTDATA_API_KEY
+                sync: false
+              - key: BRIGHTDATA_SERP_ZONE
+                sync: false
+              - key: BRIGHTDATA_UNLOCKER_ZONE
+                sync: false
+              - key: ANTHROPIC_API_KEY
+                sync: false
+              - fromGroup: styletrail-settings
+
+          - type: web
+            name: styletrail-web
+            runtime: node
+            region: singapore
+            plan: starter
+            rootDir: frontend
+            buildCommand: npm ci && npm run build
+            startCommand: npm start
+            autoDeployTrigger: commit
+            envVars:
+              - key: NODE_VERSION
+                value: "22"
+              - key: API_HOSTPORT
+                fromService:
+                  type: web
+                  name: styletrail-api
+                  property: hostport
+
+          - type: cron
+            name: styletrail-price-refresh
+            runtime: python
+            region: singapore
+            plan: starter
+            rootDir: backend
+            schedule: "17 */6 * * *"   # every 6 hours (UTC)
+            buildCommand: pip install -r requirements.txt
+            startCommand: python -m app.refresh
+            envVars:
+              - key: PYTHON_VERSION
+                value: "3.12.7"
+              - key: DATABASE_URL
+                fromDatabase:
+                  name: styletrail-db
+                  property: connectionString
+              - key: REFRESH_LIMIT
+                value: "400"
+              - key: BRIGHTDATA_API_KEY
+                sync: false
+              - key: BRIGHTDATA_SERP_ZONE
+                sync: false
+              - key: BRIGHTDATA_UNLOCKER_ZONE
+                sync: false
+              - key: ANTHROPIC_API_KEY
+                sync: false
+              - fromGroup: styletrail-settings

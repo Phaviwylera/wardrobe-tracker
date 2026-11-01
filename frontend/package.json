@@ -1,0 +1,28 @@
+{
+  "name": "styletrail-web",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start -p ${PORT:-3000}",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@fontsource/hind": "^5.3.0",
+    "@fontsource/rozha-one": "^5.3.0",
+    "next": "^15.5.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "recharts": "^3.10.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5.6"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
