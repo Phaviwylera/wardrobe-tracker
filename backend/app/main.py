@@ -143,6 +143,10 @@ def health() -> dict:
     return {
         "ok": True,
         "brightdata": settings.brightdata_ready,
+        # Shape only (never the value), to spot mis-pasted keys.
+        "key_shape": {"length": len(settings.brightdata_api_key),
+                      "uuid_like": bool(__import__("re").fullmatch(r"[0-9a-fA-F-]{36}", settings.brightdata_api_key))},
+        "serp_zone": settings.brightdata_serp_zone or None,
         "unlocker": bool(settings.brightdata_unlocker_zone),
         "captioner": settings.llm_provider if settings.llm_provider != "none" else None,
         "clip": os.getenv("ENABLE_CLIP") == "1",
