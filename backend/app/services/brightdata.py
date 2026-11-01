@@ -107,8 +107,10 @@ class BrightData:
 
     # ---------------------------------------------------------------- Unlocker
     async def fetch_html(self, url: str) -> str:
-        zone = self.s.brightdata_unlocker_zone or self.s.brightdata_serp_zone
-        r = await self._request(zone, url, country=self.s.country)
+        if not self.s.brightdata_unlocker_zone:
+            # SERP zones only reach search engines; without a Web Unlocker zone we use SERP prices.
+            raise BrightDataError("no Web Unlocker zone configured")
+        r = await self._request(self.s.brightdata_unlocker_zone, url, country=self.s.country)
         return r.text
 
     # ---------------------------------------------------------------- images

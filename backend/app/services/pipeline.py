@@ -150,6 +150,8 @@ async def scrape_product(bd: BrightData, url: str) -> ProductData | None:
 
 
 async def _price(bd: BrightData, s: Settings, qf: matcher.Features, cands: list[Candidate]) -> None:
+    if not s.brightdata_unlocker_zone:
+        return  # listing prices from Lens / Shopping are used instead
     pages = await asyncio.gather(*[scrape_product(bd, c.listing.url) for c in cands])
     rescore = []
     for c, page in zip(cands, pages):
@@ -236,7 +238,8 @@ async def run_search(search_id: str, settings: Settings | None = None,
         best = sorted(cands, key=lambda c: -(c.score.score if c.score else 0))
         to_price = [c for c in best if c.score and c.score.score >= MIN_SCORE][: s.max_product_pages]
         _update(search_id, status="pricing", progress=0.7,
-                stage=f"Fetching live prices from {len(to_price)} product pages")
+                stage=f"Fetching live prices from {len(to_price)} product pages"
+                if s.brightdata_unlocker_zone else "Collecting prices")
         await _price(bd, s, qf, to_price)
 
         stats = _persist(search_id, cands)
