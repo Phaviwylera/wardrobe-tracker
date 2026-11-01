@@ -1,0 +1,31 @@
+# Free replacement for a paid cron job: every 6 hours, ask the app to re-check prices.
+# Needs two repository secrets (Settings → Secrets and variables → Actions):
+#   STYLETRAIL_URL   e.g. https://styletrail.onrender.com
+#   ADMIN_TOKEN      the ADMIN_TOKEN value from the Render service's Environment tab
+name: Price refresh
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Wake the free instance
+        run: |
+          for i in $(seq 1 12); do
+            curl -fsS --max-time 30 "$STYLETRAIL_URL/api/health" && exit 0
+            sleep 15
+          done
+          echo "App did not wake up" && exit 1
+        env:
+          STYLETRAIL_URL: ${{ secrets.STYLETRAIL_URL }}
+      - name: Refresh prices
+        run: |
+          curl -fsS --max-time 2400 -X POST "$STYLETRAIL_URL/api/admin/refresh" \
+            -H "Authorization: Bearer $ADMIN_TOKEN"
+        env:
+          STYLETRAIL_URL: ${{ secrets.STYLETRAIL_URL }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}

@@ -1,97 +1,31 @@
-# StyleTrail on Render: Next.js web app, FastAPI API, price-refresh cron, Postgres.
-# Secrets marked `sync: false` are asked for when you create the Blueprint
-# (enter the Bright Data values for both the API and the cron job).
-projects:
-  - name: styletrail
-    environments:
-      - name: production
-        databases:
-          - name: styletrail-db
-            plan: basic-256mb
-            region: singapore
-            postgresMajorVersion: "16"
-
-        envVarGroups:
-          - name: styletrail-settings
-            envVars:
-              - key: COUNTRY
-                value: in
-              - key: LLM_PROVIDER
-                value: none          # set to anthropic or bedrock to enable garment captions
-
-        services:
-          - type: web
-            name: styletrail-api
-            runtime: python
-            region: singapore
-            plan: starter            # 512 MB is enough; move to standard if you enable CLIP
-            rootDir: backend
-            buildCommand: pip install -r requirements.txt
-            startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers
-            healthCheckPath: /api/health
-            autoDeployTrigger: commit
-            maxShutdownDelaySeconds: 120   # let running searches finish on deploy
-            envVars:
-              - key: PYTHON_VERSION
-                value: "3.12.7"
-              - key: DATABASE_URL
-                fromDatabase:
-                  name: styletrail-db
-                  property: connectionString
-              - key: ADMIN_TOKEN
-                generateValue: true
-              - key: BRIGHTDATA_API_KEY
-                sync: false
-              - key: BRIGHTDATA_SERP_ZONE
-                sync: false
-              - key: BRIGHTDATA_UNLOCKER_ZONE
-                sync: false
-              - key: ANTHROPIC_API_KEY
-                sync: false
-              - fromGroup: styletrail-settings
-
-          - type: web
-            name: styletrail-web
-            runtime: node
-            region: singapore
-            plan: starter
-            rootDir: frontend
-            buildCommand: npm ci && npm run build
-            startCommand: npm start
-            autoDeployTrigger: commit
-            envVars:
-              - key: NODE_VERSION
-                value: "22"
-              - key: API_HOSTPORT
-                fromService:
-                  type: web
-                  name: styletrail-api
-                  property: hostport
-
-          - type: cron
-            name: styletrail-price-refresh
-            runtime: python
-            region: singapore
-            plan: starter
-            rootDir: backend
-            schedule: "17 */6 * * *"   # every 6 hours (UTC)
-            buildCommand: pip install -r requirements.txt
-            startCommand: python -m app.refresh
-            envVars:
-              - key: PYTHON_VERSION
-                value: "3.12.7"
-              - key: DATABASE_URL
-                fromDatabase:
-                  name: styletrail-db
-                  property: connectionString
-              - key: REFRESH_LIMIT
-                value: "400"
-              - key: BRIGHTDATA_API_KEY
-                sync: false
-              - key: BRIGHTDATA_SERP_ZONE
-                sync: false
-              - key: BRIGHTDATA_UNLOCKER_ZONE
-                sync: false
-              - key: ANTHROPIC_API_KEY
-                sync: false
-              - fromGroup: styletrail-settings
+# StyleTrail on Render's free plan: one web service runs the website and the API.
+#   Database: a free Neon Postgres (doesn't expire) – paste its connection string as DATABASE_URL.
+#   Price refresh: .github/workflows/price-refresh.yml (free GitHub Actions schedule).
+services:
+  - type: web
+    name: styletrail
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: DATABASE_URL
+        sync: false          # Neon connection string: postgresql://user:pass@host/db?sslmode=require
+      - key: BRIGHTDATA_API_KEY
+        sync: false
+      - key: BRIGHTDATA_SERP_ZONE
+        sync: false
+      - key: BRIGHTDATA_UNLOCKER_ZONE
+        sync: false
+      - key: ADMIN_TOKEN
+        generateValue: true  # copy into GitHub secrets for the refresh workflow
+      - key: COUNTRY
+        value: in
+      - key: LLM_PROVIDER
+        value: none
+      - key: REFRESH_LIMIT
+        value: "150"
+      - key: MAX_PRODUCT_PAGES
+        value: "25"

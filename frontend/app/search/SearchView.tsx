@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { use, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ResultRow from "@/components/ResultRow";
 import { api, imageUrl, type MatchLevel, type Result, type SearchState } from "@/lib/api";
 
@@ -12,8 +12,7 @@ const GROUPS: { level: MatchLevel; title: string; note: string }[] = [
   { level: "similar", title: "Similar styles", note: "Not the same item, but close in look." },
 ];
 
-export default function SearchPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function SearchView({ id }: { id: string }) {
   const [s, setS] = useState<SearchState | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [sort, setSort] = useState<Sort>("match");

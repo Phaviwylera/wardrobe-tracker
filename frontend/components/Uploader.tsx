@@ -85,7 +85,7 @@ export default function Uploader() {
     }
     try {
       const { id } = await api<{ id: string }>("/api/searches", { method: "POST", body: fd });
-      router.push(`/search/${id}`);
+      router.push(`/search/?id=${id}`);
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);

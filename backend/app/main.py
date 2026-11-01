@@ -340,3 +340,13 @@ async def admin_refresh(authorization: str | None = Header(default=None)) -> dic
     if not settings.admin_token or authorization != f"Bearer {settings.admin_token}":
         raise HTTPException(401)
     return await refresh_job.refresh()
+
+
+# ------------------------------------------------------------------------- website
+# In production the Next.js static export is copied into STATIC_DIR and served from this same
+# service, so the site and /api share one origin (and one free Render instance).
+_static = os.getenv("STATIC_DIR", "")
+if _static and os.path.isdir(_static):
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/", StaticFiles(directory=_static, html=True), name="web")

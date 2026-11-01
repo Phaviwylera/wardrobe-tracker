@@ -72,7 +72,7 @@ export default function Watchlist() {
                     {w.hit && <span className="best">Target reached</span>}
                     {p.in_stock === false && <span className="oos small">Out of stock</span>}
                   </div>
-                  <Link className="row-title" href={`/product/${p.id}`}>{p.title ?? p.domain}</Link>
+                  <Link className="row-title" href={`/product/?id=${p.id}`}>{p.title ?? p.domain}</Link>
                   <div className="row-meta">
                     {w.target_price ? <span>Target {money(w.target_price)}</span> : <span>No target set</span>}
                     {w.lowest != null && <span>Lowest seen {money(w.lowest)}</span>}
@@ -82,7 +82,7 @@ export default function Watchlist() {
                   <div className="price num">{money(p.current_price, p.currency)}</div>
                   <Spark points={w.spark} />
                   <div className="row-actions">
-                    <Link className="btn quiet small" href={`/product/${p.id}`}>Price history</Link>
+                    <Link className="btn quiet small" href={`/product/?id=${p.id}`}>Price history</Link>
                   </div>
                 </div>
               </article>

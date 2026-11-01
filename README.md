@@ -64,28 +64,34 @@ pytest                          # unit + end-to-end tests (Bright Data faked)
 cd frontend
 npm install
 npm run dev                     # http://localhost:3000, proxies /api to :8000
+# production-style: STATIC_EXPORT=1 npx next build, then STATIC_DIR=../frontend/out uvicorn …
 ```
 
 SQLite is used when `DATABASE_URL` is unset; production uses Postgres.
 
-## Deploy on Render
+## Deploy for free (Render + Neon + GitHub Actions)
 
-`render.yaml` creates a project with Postgres, the FastAPI service, the Next.js site and the
-6-hourly price-refresh cron, all in Singapore (closest region to India).
+One free Render web service runs both the website and the API (Dockerfile builds the Next.js
+static export and serves it from FastAPI). Free Render services sleep after 15 minutes idle and
+take about a minute to wake on the next visit.
 
-1. Push this repo to GitHub.
-2. Render dashboard → New → Blueprint → pick the repo.
-3. Enter the Bright Data values when asked (both for `styletrail-api` and the cron job).
-   `ANTHROPIC_API_KEY` can be left empty.
-4. Open the `styletrail-web` URL.
+1. **Database** – create a free project at neon.tech and copy its connection string
+   (`postgresql://…?sslmode=require`). Render's free Postgres is deleted after 30 days, which would wipe
+   price history, so Neon is used instead.
+2. **App** – Render dashboard → New → Blueprint → pick this repo. Enter `DATABASE_URL` (from Neon)
+   and the three Bright Data values. Choose the Free plan. Deploy.
+3. **Price refresh** – in GitHub → Settings → Secrets and variables → Actions, add
+   `STYLETRAIL_URL` (your `https://….onrender.com` URL) and `ADMIN_TOKEN` (copy it from the Render
+   service's Environment tab). `.github/workflows/price-refresh.yml` then wakes the app and re-checks
+   prices every 6 hours. Run it once by hand from the Actions tab to test.
 
-Optional settings on the API service:
+Optional settings on the Render service:
 
 - `LLM_PROVIDER=anthropic` + `ANTHROPIC_API_KEY`, or `LLM_PROVIDER=bedrock` + `BEDROCK_MODEL` +
   AWS credentials, for garment descriptions and text search.
-- `ENABLE_CLIP=1` after adding `open_clip-torch` and `torch` to requirements (needs ~2 GB RAM).
 - `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`, `ALERT_FROM` for e-mail price alerts.
 - `SEARCHES_PER_HOUR` (default 30 per browser) to cap Bright Data spend.
+- `ENABLE_CLIP=1` needs a paid instance with ~2 GB RAM.
 
 ## Cost per search (roughly)
 
@@ -109,5 +115,7 @@ backend/app/
     pricing.py         price history and stats
     captioner.py       optional Claude garment description
 frontend/              Next.js app (search, results, product history, watch list)
-render.yaml            Render Blueprint
+Dockerfile             builds website + API into one image
+render.yaml            Render Blueprint (free plan)
+.github/workflows/     6-hourly price refresh
 ```

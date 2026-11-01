@@ -16,7 +16,7 @@ export default function Nav() {
       </Link>
       <nav className="nav" aria-label="Main">
         <Link href="/" aria-current={path === "/" ? "page" : undefined}>Search</Link>
-        <Link href="/watchlist" aria-current={path === "/watchlist" ? "page" : undefined}>Watchlist</Link>
+        <Link href="/watchlist" aria-current={path.startsWith("/watchlist") ? "page" : undefined}>Watchlist</Link>
       </nav>
     </header>
   );

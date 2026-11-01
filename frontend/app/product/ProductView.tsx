@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { use, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import PriceChart from "@/components/PriceChart";
 import { ago, api, money, type ProductDetail } from "@/lib/api";
 
@@ -13,8 +13,7 @@ const VERDICT: Record<string, string> = {
   tracking: "Tracking started; history builds over the next days",
 };
 
-export default function ProductPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function ProductView({ id }: { id: string }) {
   const [d, setD] = useState<ProductDetail | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [target, setTarget] = useState("");
@@ -149,7 +148,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
             <div className="rows">
               {d.other_stores.map((o) => (
                 <div className="row" key={o.id} style={{ gridTemplateColumns: "1fr auto auto" }}>
-                  <Link href={`/product/${o.id}`} className="row-store">{o.store_name}{o.in_stock === false ? <span className="oos small">Out of stock</span> : null}</Link>
+                  <Link href={`/product/?id=${o.id}`} className="row-store">{o.store_name}{o.in_stock === false ? <span className="oos small">Out of stock</span> : null}</Link>
                   <span className="price num" style={{ fontSize: "1.3rem" }}>{money(o.current_price)}</span>
                   <a className="btn small" href={o.url} target="_blank" rel="noopener noreferrer nofollow">Open</a>
                 </div>

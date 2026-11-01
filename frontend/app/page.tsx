@@ -36,7 +36,7 @@ export default function Home() {
           </div>
           <div className="recent">
             {recent.slice(0, 12).map((r) => (
-              <Link key={r.id} href={`/search/${r.id}`}>
+              <Link key={r.id} href={`/search/?id=${r.id}`}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={imageUrl(r.image_id)} alt={r.garment ?? "Searched outfit"} loading="lazy" />
                 <span className="small">

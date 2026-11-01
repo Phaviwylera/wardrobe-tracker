@@ -19,7 +19,7 @@ export default function ResultRow({ r, cheapest }: { r: Result; cheapest: boolea
           <span className={`stamp ${r.match_level}`}>{LEVEL_LABEL[r.match_level]}</span>
           {cheapest && <span className="best">Lowest price</span>}
         </div>
-        <Link href={`/product/${p.id}`} className="row-title">
+        <Link href={`/product/?id=${p.id}`} className="row-title">
           {p.brand && !p.title?.toLowerCase().startsWith(p.brand.toLowerCase()) ? `${p.brand} ` : ""}
           {p.title ?? p.domain}
         </Link>
@@ -44,7 +44,7 @@ export default function ResultRow({ r, cheapest }: { r: Result; cheapest: boolea
         </div>
         <Spark points={r.spark} />
         <div className="row-actions">
-          <Link className="btn quiet small" href={`/product/${p.id}`}>Price history</Link>
+          <Link className="btn quiet small" href={`/product/?id=${p.id}`}>Price history</Link>
           <a className="btn small" href={p.url} target="_blank" rel="noopener noreferrer nofollow">
             Open on {p.store_name.split(" ")[0]}
           </a>
