@@ -43,9 +43,9 @@ To use Claude instead of Llama/Nova (better descriptions), accept the Anthropic 
 Bedrock console (Model access), then set in `/etc/styletrail.env`:
 
 ```
-BEDROCK_MODEL=apac.anthropic.claude-sonnet-4-5-20250929-v1:0
+BEDROCK_MODEL=global.anthropic.claude-sonnet-4-5-20250929-v1:0
 BEDROCK_REGION=ap-south-1
-VERIFY_MODELS=apac.anthropic.claude-sonnet-4-5-20250929-v1:0@ap-south-1,apac.amazon.nova-pro-v1:0@ap-south-1
+VERIFY_MODELS=global.anthropic.claude-sonnet-4-5-20250929-v1:0@ap-south-1,apac.amazon.nova-pro-v1:0@ap-south-1
 ```
 
 and rerun `deploy.sh`.
