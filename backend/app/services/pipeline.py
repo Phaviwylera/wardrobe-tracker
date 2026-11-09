@@ -136,9 +136,15 @@ def _collect(listings: list[Listing], limit: int) -> list[Candidate]:
 
 # --------------------------------------------------------------------------- verification
 def _identical(c: Candidate) -> bool:
+    """The listing shows the very same photo (screenshot, crop or resize of it)."""
     sig = c.score.signals if c.score else {}
-    return bool(sig.get("verified")) and (sig.get("hash", 0) >= 0.85 or sig.get("orb", 0) >= 0.85) \
-        and sig.get("colour", 0) >= 0.4
+    if not sig.get("verified"):
+        return False
+    gap = sig.get("hue_gap")
+    same_colour = gap is None or gap <= 18  # guards against recoloured copies of one photo
+    strong_geometry = sig.get("orb_inliers", 0) >= 100
+    near_duplicate = sig.get("hash", 0) >= 0.85 and sig.get("colour", 0) >= 0.4
+    return same_colour and (strong_geometry or near_duplicate)
 async def _image(direct: Direct, bd: BrightData | None, url: str) -> bytes | None:
     data = await direct.fetch_image(url)
     if data is None and bd is not None:

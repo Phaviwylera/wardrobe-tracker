@@ -44,6 +44,8 @@ class Features:
     kp_pts: np.ndarray | None
     clip: np.ndarray | None
     fg_ratio: float
+    hue: float | None = None   # circular mean hue (0-180) of saturated pixels in the central region
+    sat: float = 0.0
 
 
 def load_image(data: bytes, max_side: int = 640) -> Image.Image:
@@ -138,7 +140,9 @@ def features(data: bytes) -> Features:
     kps, desc = _orb.detectAndCompute(gray, None)
     pts = np.float32([k.pt for k in kps]) if kps else None
 
+    hue, sat = _centre_hue(arr)
     return Features(
+        hue=hue, sat=sat,
         phash=imagehash.phash(crop, hash_size=16),
         dhash=imagehash.dhash(crop, hash_size=16),
         hist=hist,
@@ -147,6 +151,27 @@ def features(data: bytes) -> Features:
         clip=_Clip.embed(crop),
         fg_ratio=float(mask.mean()),
     )
+
+
+def _centre_hue(arr: np.ndarray) -> tuple[float | None, float]:
+    """Dominant garment hue from the middle of the picture: robust to borders and screenshot chrome."""
+    h, w = arr.shape[:2]
+    centre = arr[h // 4: h - h // 4, w // 4: w - w // 4]
+    hsv = cv2.cvtColor(centre, cv2.COLOR_RGB2HSV).reshape(-1, 3).astype(np.float32)
+    sat = float(hsv[:, 1].mean())
+    vivid = hsv[(hsv[:, 1] > 60) & (hsv[:, 2] > 40)]
+    if len(vivid) < 50:
+        return None, sat
+    ang = vivid[:, 0] * (2 * np.pi / 180.0)
+    mean = np.arctan2(np.sin(ang).mean(), np.cos(ang).mean())
+    return float((mean % (2 * np.pi)) * 180.0 / (2 * np.pi)), sat
+
+
+def hue_gap(a: Features, b: Features) -> float | None:
+    if a.hue is None or b.hue is None:
+        return None
+    d = abs(a.hue - b.hue) % 180
+    return min(d, 180 - d)
 
 
 def _orb_inliers(a: Features, b: Features) -> int:
@@ -205,6 +230,7 @@ def compare(q: Features, c: Features | None, channel: str, exact_t: float = 0.80
     score = _clip01(score)
     return MatchScore(round(score, 3), _level(score, exact_t, close_t), {
         "verified": True, "hash": round(h, 3), "orb_inliers": inliers, "orb": round(orb, 3),
+        "hue_gap": None if hue_gap(q, c) is None else round(hue_gap(q, c), 1),
         "colour": round(col, 3), "clip": None if clip is None else round(clip, 3), "prior": prior,
     })
 

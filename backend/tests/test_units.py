@@ -160,3 +160,18 @@ def test_myntra_urls_collapse():
     b = canonical_url("https://www.myntra.com/tops/all+about+you/all-about-you-women-green-solid-shirt-style-top/16931780/buy")
     assert a == b == "https://www.myntra.com/16931780"
     assert is_product_url("https://www.myntra.com/16931780") and store_info(a)[1] == "Myntra"
+
+
+def test_identical_photo_survives_screenshot_borders():
+    from PIL import ImageOps
+    from app.services.pipeline import Candidate, _identical
+    from app.services.serp_parse import Listing
+    base = _garment()
+    shot = ImageOps.expand(base.resize((420, 560)), border=(30, 20, 30, 70), fill=(250, 250, 250))  # screenshot chrome
+    q = matcher.features(_bytes(shot))
+    same = matcher.compare(q, matcher.features(_bytes(base)), "web")
+    recol = matcher.compare(q, matcher.features(_bytes(_garment(colour=(30, 60, 200)))), "web")
+    c1 = Candidate(canon="a", listing=Listing(url="a")); c1.score = same
+    c2 = Candidate(canon="b", listing=Listing(url="b")); c2.score = recol
+    assert _identical(c1), same.signals
+    assert not _identical(c2), recol.signals
