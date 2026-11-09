@@ -184,7 +184,7 @@ async def scrape_product(url: str, direct: Direct | None = None, bd: BrightData 
             if not li or not li.price:
                 return None
             return ProductData(title=li.title or None, price=li.price, mrp=li.extra.get("mrp"), currency="INR",
-                               in_stock=li.in_stock, image_url=li.image_url,
+                               in_stock=li.in_stock, image_url=li.image_url, sizes=li.extra.get("sizes") or [],
                                images=[li.image_url] if li.image_url else [], sources=["tatacliq_api"])
         html = await direct.fetch_page(url)
         if (html is None or looks_blocked(html)) and bd is not None and bd.s.brightdata_unlocker_zone:

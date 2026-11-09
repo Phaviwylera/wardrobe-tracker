@@ -137,3 +137,15 @@ def test_keyless_search_flow(monkeypatch):
     assert "https://www.flipkart.com/x/p/itm1?pid=KT1" not in by  # judged different: dropped
     assert by["https://www.myntra.com/kurtas/libas/a/24567890/buy"]["match_level"] == "similar"
     assert s["attributes"]["garment"] == "anarkali kurta" and verified["n"] == 3
+
+
+def test_tatacliq_pdp():
+    from app.services.direct import parse_tatacliq_pdp
+    d = {"brandName": "Biba", "productName": "Biba Pink Anarkali", "allOOStock": False,
+         "winningSellerPrice": {"doubleValue": 4121.0}, "mrpPrice": {"commaFormattedValue": "₹5,495.00"},
+         "variantOptions": [{"sizelink": {"size": "M", "isAvailable": True}}, {"sizelink": {"size": "XL", "isAvailable": False}}],
+         "galleryImagesList": [{"galleryImages": [{"key": "product", "value": "//img.tatacliq.com/a.jpg"}]}]}
+    li = parse_tatacliq_pdp(d, "https://www.tatacliq.com/x/p-mp000000030341986")
+    assert (li.price, li.extra["mrp"], li.in_stock, li.title) == (4121, 5495, True, "Biba Pink Anarkali")
+    assert li.extra["sizes"] == [{"label": "M", "available": True}, {"label": "XL", "available": False}]
+    assert li.image_url == "https://img.tatacliq.com/a.jpg"

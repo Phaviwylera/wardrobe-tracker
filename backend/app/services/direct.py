@@ -126,15 +126,19 @@ class Direct:
         return parse_bing_images(r.text, site)
 
     async def tatacliq_product(self, url: str) -> Listing | None:
-        """Current price for one Tata CLiQ product, by searching its product code."""
+        """Current price, stock and sizes for one Tata CLiQ product (public product-details API)."""
         m = re.search(r"/p-(mp\d+)", url, re.I)
         if not m:
             return None
         code = m.group(1).upper()
-        for it in await self.tatacliq(code):
-            if code.lower() in it.url.lower():
-                return it
-        return None
+        r = await self.get(f"https://www.tatacliq.com/marketplacewebservices/v2/mpl/products/productDetails/{code}"
+                           "?isPwa=true&isMDE=true", Accept="application/json")
+        if not r or r.status_code != 200:
+            return None
+        try:
+            return parse_tatacliq_pdp(r.json(), url)
+        except ValueError:
+            return None
 
     def _fail(self, name: str, r: httpx.Response | None) -> None:
         self.errors[name] = "no response" if r is None else f"HTTP {r.status_code}"
@@ -378,3 +382,36 @@ def parse_yandex(page: str) -> list[Listing]:
             elif isinstance(cur, list):
                 stack.extend(cur)
     return out[:30]
+
+
+def parse_tatacliq_pdp(d: dict, url: str) -> Listing | None:
+    def amount(node):
+        if not isinstance(node, dict):
+            return None
+        return parse_price(node.get("doubleValue") or node.get("value") or node.get("commaFormattedValue"))[0]
+
+    price = amount(d.get("winningSellerPrice")) or amount(d.get("sellingPrice"))
+    if not price:
+        return None
+    mrp = amount(d.get("mrpPrice")) or amount(d.get("mrp"))
+    sizes = []
+    for v in d.get("variantOptions") or []:
+        size = (v.get("sizelink") or {}) if isinstance(v, dict) else {}
+        if size.get("size"):
+            sizes.append({"label": size["size"], "available": bool(size.get("isAvailable", True))})
+    img = None
+    for g in d.get("galleryImagesList") or []:
+        for k in g.get("galleryImages") or []:
+            if k.get("key") in ("product", "superZoom", "zoom") and k.get("value"):
+                img = k["value"]
+                break
+        if img:
+            break
+    if img and img.startswith("//"):
+        img = "https:" + img
+    title = " ".join(x for x in (d.get("brandName"), d.get("productName")) if x)
+    if d.get("brandName") and (d.get("productName") or "").lower().startswith(d["brandName"].lower()):
+        title = d["productName"]
+    return Listing(url=url, title=title[:300], image_url=img, price=price, currency="INR", source="Tata CLiQ",
+                   channel="store", in_stock=not bool(d.get("allOOStock")),
+                   extra={"mrp": mrp if mrp and mrp > price else None, "sizes": sizes})
