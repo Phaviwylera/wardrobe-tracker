@@ -24,7 +24,7 @@ class Store:
 
 
 STORES: list[Store] = [
-    Store("myntra", "Myntra", ("myntra.com",), r"/\d{5,}(/buy)?/?$", tier=1),
+    Store("myntra", "Myntra", ("myntra.com",), r"/\d{5,}(/buy)?/?$", tier=1, canon="myntra"),
     Store("ajio", "AJIO", ("ajio.com",), r"/p/[\w-]+", tier=1),
     Store("flipkart", "Flipkart", ("flipkart.com",), r"/p/itm", keep_params=("pid",), tier=1),
     Store("amazon", "Amazon.in", ("amazon.in",), r"/(dp|gp/product)/[A-Z0-9]{10}", tier=1, canon="amazon"),
@@ -121,13 +121,25 @@ def is_product_url(url: str) -> bool:
     return bool(re.search(r"/products?/|/p/|/dp/|/item/|/listing/|-p-?\d+|\.html$|/\d{5,}", target, re.I))
 
 
+def myntra_global_to_india(url: str) -> str:
+    """myntraglobal.com/products/<slug>-<styleid> is the same catalogue item as myntra.com/<styleid>."""
+    m = re.match(r"https?://(?:www\.)?myntraglobal\.com/products/[^?#]*?-(\d{5,})/?(?:[?#].*)?$", url.strip())
+    return f"https://www.myntra.com/{m.group(1)}" if m else url
+
+
 def canonical_url(url: str) -> str:
+    url = myntra_global_to_india(url)
     parts = urlsplit(url.strip())
     store = store_for(url)
     host = (parts.hostname or "").lower()
     if host.startswith("m.") and store.key not in ("other",):
         host = "www." + host[2:]
     path = re.sub(r"/{2,}", "/", parts.path).rstrip("/") or "/"
+
+    if store.canon == "myntra":
+        m = re.search(r"/(\d{5,})(?:/buy)?/?$", parts.path)
+        if m:
+            return f"https://www.myntra.com/{m.group(1)}"
 
     if store.canon == "amazon":
         m = re.search(r"/(?:dp|gp/product)/([A-Z0-9]{10})", parts.path)

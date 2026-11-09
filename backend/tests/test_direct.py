@@ -62,6 +62,10 @@ def test_parsers():
          "price": "1890.00", "compare_at_price_max": "2799.00", "available": True, "vendor": "Libas"}]}}}, "www.libas.in")
     assert sh[0].url == "https://www.libas.in/products/rose-anarkali" and sh[0].price == 1890 and sh[0].extra["mrp"] == 2799
 
+    glob = '<a m="' + json.dumps({"purl": "https://www.myntraglobal.com/products/all-about-you-women-green-solid-shirt-style-top-16931780",
+                                  "murl": "https://assets.myntassets.com/a.jpg", "t": "Top"}).replace('"', "&quot;") + '"></a>'
+    g = parse_bing_images(glob, "myntra.com")
+    assert g and g[0].url == "https://www.myntra.com/16931780"
     b = parse_bing_images(BING, "myntra.com")
     assert len(b) == 1 and b[0].title == "Libas Women Pink Anarkali" and b[0].price is None
 

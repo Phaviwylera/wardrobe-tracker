@@ -42,7 +42,7 @@ def test_product_url_detection_and_canonical():
         "https://www.amazon.in/dp/B0C1234567"
     assert canonical_url("https://www.flipkart.com/x/p/itm123?pid=KTAG1&lid=L&marketplace=FLIPKART") == \
         "https://www.flipkart.com/x/p/itm123?pid=KTAG1"
-    assert canonical_url("https://m.myntra.com/a/b/123456/buy/") == "https://www.myntra.com/a/b/123456/buy"
+    assert canonical_url("https://m.myntra.com/a/b/123456/buy/") == "https://www.myntra.com/123456"
     assert not is_product_url("https://in.pinterest.com/pin/123/")
     assert is_product_url("https://somebrand.in/products/red-saree")
     assert store_info("https://www.libas.in/products/x")[1] == "Libas"
@@ -152,3 +152,11 @@ def test_collect_gives_every_store_a_share():
     got = _collect(ls, 20)
     assert sum("myntra" in c.canon for c in got) == 10
     assert got[1].canon.startswith("https://www.myntra.com") or got[0].canon.startswith("https://www.myntra.com")
+
+
+def test_myntra_urls_collapse():
+    from app.services.stores import canonical_url, is_product_url, store_info
+    a = canonical_url("https://www.myntraglobal.com/products/all-about-you-women-green-solid-shirt-style-top-16931780")
+    b = canonical_url("https://www.myntra.com/tops/all+about+you/all-about-you-women-green-solid-shirt-style-top/16931780/buy")
+    assert a == b == "https://www.myntra.com/16931780"
+    assert is_product_url("https://www.myntra.com/16931780") and store_info(a)[1] == "Myntra"

@@ -27,7 +27,7 @@ import httpx
 from selectolax.lexbor import LexborHTMLParser as HTMLParser
 
 from .serp_parse import Listing, parse_price
-from .stores import is_product_url
+from .stores import is_product_url, myntra_global_to_india, store_for
 
 log = logging.getLogger(__name__)
 
@@ -350,6 +350,7 @@ def parse_bing_images(page: str, site: str) -> list[Listing]:
         except ValueError:
             continue
         purl, murl = d.get("purl") or "", d.get("murl") or ""
+        purl = myntra_global_to_india(purl)
         host = urlsplit(purl).hostname or ""
         if not host.endswith(site) or purl in seen or not is_product_url(purl):
             continue
@@ -360,7 +361,7 @@ def parse_bing_images(page: str, site: str) -> list[Listing]:
         out.append(Listing(url=purl, title=title[:300], image_url=murl or turl,
                            price=None, source=site, channel="web", position=len(out) + 1,
                            extra={"alt_images": [turl] if murl and turl else []}))
-    return out[:12]
+    return out[:30]
 
 
 def parse_yandex(page: str) -> list[Listing]:
@@ -385,8 +386,10 @@ def parse_yandex(page: str) -> list[Listing]:
                         if not isinstance(site, dict):
                             continue
                         url = site.get("url") or ""
-                        url = re.sub(r"[?&]utm_[^&]+", "", url).rstrip("?&")
-                        if not url.startswith("http") or url in seen or not is_product_url(url):
+                        url = myntra_global_to_india(re.sub(r"[?&]utm_[^&]+", "", url).rstrip("?&"))
+                        # only known shops: the open web returns many junk "product" pages
+                        if (not url.startswith("http") or url in seen or not is_product_url(url)
+                                or store_for(url).key == "other"):
                             continue
                         seen.add(url)
                         img = (site.get("originalImage") or {}).get("url") or (site.get("thumb") or {}).get("url")
