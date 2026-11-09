@@ -139,14 +139,25 @@ class Direct:
     def _fail(self, name: str, r: httpx.Response | None) -> None:
         self.errors[name] = "no response" if r is None else f"HTTP {r.status_code}"
 
-    async def search_all(self, queries: list[str]) -> list[Listing]:
+    async def yandex_similar(self, image_url: str) -> list[Listing]:
+        """Yandex reverse image search: pages with the same or similar photo, anywhere on the web."""
+        r = await self.get("https://yandex.com/images/search?rpt=imageview&cbir_page=sites&url=" + quote(image_url, safe=""))
+        if not r or r.status_code != 200:
+            self._fail("yandex", r)
+            return []
+        return parse_yandex(r.text)
+
+    async def search_all(self, queries: list[str], image_url: str | None = None) -> list[Listing]:
         jobs: list = []
-        for i, q in enumerate(queries[:3]):
-            jobs += [self.amazon(q), self.flipkart(q), self.tatacliq(q)]
+        for i, q in enumerate(queries[:6]):
+            if i < 4:
+                jobs += [self.amazon(q), self.flipkart(q), self.tatacliq(q)]
             if i < 2:
                 jobs += [self.bing_images(q, site) for site in BLOCKED_STORES]
-            if i < 2:
+            if i < 3:
                 jobs += [self.shopify(h, q) for h in SHOPIFY_STORES]
+        if image_url:
+            jobs.append(self.yandex_similar(image_url))
         out: list[Listing] = []
         for res in await asyncio.gather(*jobs, return_exceptions=True):
             if isinstance(res, Exception):
@@ -328,3 +339,41 @@ def parse_bing_images(page: str, site: str) -> list[Listing]:
         out.append(Listing(url=purl, title=title[:300], image_url=murl or d.get("turl"),
                            price=None, source=site, channel="web", position=len(out) + 1))
     return out[:12]
+
+
+def parse_yandex(page: str) -> list[Listing]:
+    """Read the "sites" list (pages showing the same or similar image) from Yandex's page state."""
+    out: list[Listing] = []
+    seen: set[str] = set()
+    for blob in re.findall(r'data-state="(\{.*?\})"', page):
+        text = htmlmod.unescape(blob)
+        if '"sites"' not in text:
+            continue
+        try:
+            state = json.loads(text)
+        except ValueError:
+            continue
+        stack = [state]
+        while stack:
+            cur = stack.pop()
+            if isinstance(cur, dict):
+                sites = cur.get("sites")
+                if isinstance(sites, list):
+                    for site in sites:
+                        if not isinstance(site, dict):
+                            continue
+                        url = site.get("url") or ""
+                        url = re.sub(r"[?&]utm_[^&]+", "", url).rstrip("?&")
+                        if not url.startswith("http") or url in seen or not is_product_url(url):
+                            continue
+                        seen.add(url)
+                        img = (site.get("originalImage") or {}).get("url") or (site.get("thumb") or {}).get("url")
+                        if img and img.startswith("//"):
+                            img = "https:" + img
+                        out.append(Listing(url=url, title=(site.get("title") or "")[:300], image_url=img,
+                                           price=None, source=site.get("domain"), channel="web",
+                                           position=len(out) + 1))
+                stack.extend(v for v in cur.values() if isinstance(v, (dict, list)))
+            elif isinstance(cur, list):
+                stack.extend(cur)
+    return out[:30]

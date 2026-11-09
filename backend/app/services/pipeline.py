@@ -33,7 +33,7 @@ LENS_TABS = ("exact_matches", "products", "visual_matches")
 CHANNEL_RANK = {"lens:exact_matches": 0, "lens:products": 1, "store": 2, "shopping": 2,
                 "web": 3, "organic": 3, "lens:visual_matches": 4}
 MIN_SCORE = 0.30
-CLAUDE_CHECK = 30  # candidates the vision model double-checks per search
+CLAUDE_CHECK = 36  # candidates the vision model double-checks per search
 
 
 @dataclass
@@ -275,7 +275,9 @@ async def run_search(search_id: str, settings: Settings | None = None,
         if attrs and attrs.get("queries"):
             _update(search_id, attributes=attrs, progress=0.2,
                     stage="Searching Amazon, Flipkart, Tata CLiQ, Myntra, AJIO and brand stores")
-            jobs = [direct.search_all(attrs["queries"])]
+            public = s.public_base_url.rstrip("/")
+            img_url = None if ("localhost" in public or "127.0.0.1" in public) else f"{public}/api/images/{image_id}.jpg"
+            jobs = [direct.search_all(attrs["queries"], img_url)]
             if bd:
                 jobs.append(_serp_text(bd, attrs["queries"]))
             for res in await asyncio.gather(*jobs, return_exceptions=True):

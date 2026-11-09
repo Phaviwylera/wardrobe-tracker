@@ -27,6 +27,18 @@ BING = ('<a class="iusc" m="' + json.dumps({
     '"></a><a class="iusc" m="' + json.dumps({"purl": "https://www.myntra.com/women-kurtas", "murl": "x"}).replace('"', "&quot;") + '"></a>')
 
 
+def test_yandex_parser():
+    from app.services.direct import parse_yandex
+    state = {"x": {"sites": [
+        {"url": "https://www.biba.in/pink-anarkali/SKD8812.html?utm_source=yandexsmartcamera", "title": "Pink Anarkali",
+         "domain": "biba.in", "originalImage": {"url": "https://www.biba.in/a.jpg"}},
+        {"url": "https://in.pinterest.com/pin/123/", "title": "pin", "domain": "pinterest.com"}]}}
+    page = '<div data-state="' + json.dumps(state).replace('"', "&quot;") + '"></div>'
+    got = parse_yandex(page)
+    assert [g.url for g in got] == ["https://www.biba.in/pink-anarkali/SKD8812.html"]
+    assert got[0].image_url == "https://www.biba.in/a.jpg" and got[0].channel == "web"
+
+
 def test_parsers():
     a = parse_amazon(AMAZON)
     assert len(a) == 1 and a[0].url == "https://www.amazon.in/dp/B0DKXZGWWY"
@@ -82,7 +94,7 @@ def test_keyless_search_flow(monkeypatch):
 
     same, recolour, other = _uri(_garment().resize((300, 400))), _uri(_garment(colour=(20, 60, 200))), _uri(_garment(colour=(40, 160, 70), seed=7))
 
-    async def search_all(self, queries):
+    async def search_all(self, queries, image_url=None):
         return [
             Listing(url="https://www.amazon.in/dp/B0AAAAAAAA", title="Pink Anarkali", image_url=same, price=899,
                     currency="INR", channel="store", extra={"mrp": 2499}),

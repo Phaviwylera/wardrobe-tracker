@@ -29,9 +29,12 @@ Look at the clothing in the photo. If several garments are visible, describe the
   "fabric": "best guess or null",
   "details": ["neckline", "sleeve length", "silhouette", "embellishment", "..."],
   "brand": "only if a logo, label or watermark is clearly readable, else null",
-  "queries": ["4 shopping search queries a buyer would type on Amazon.in or Flipkart to find this
-              exact item: most specific first (brand if known, colour, print, garment, key detail),
-              then progressively broader; each 3 to 8 words, Indian retail vocabulary"]
+  "queries": ["6 shopping search queries a buyer would type on Amazon.in, Flipkart or Myntra to find
+              this exact item, each 3 to 7 words, Indian retail vocabulary. Start with the most specific
+              (brand if readable, colour, print or work type, garment). Indian stores often name
+              colours loosely, so add variants with the neighbouring colour names they use (for example
+              red / maroon / pink / rust, blue / navy / teal). If you cannot tell printed from embroidered,
+              include both. End with one broad query (colour + garment)."]
 }"""
 
 VERIFY = """Image 1 is a photo a shopper took or saved. Image 2 is a product listing from a store.
@@ -109,9 +112,14 @@ async def describe(image_jpeg: bytes, settings: Settings | None = None) -> dict 
     s = settings or get_settings()
     if not enabled(s):
         return None
-    data = await _ask(s, [_small_jpeg(image_jpeg, 1024)], DESCRIBE, 700, 60)
+    data = await _ask(s, [_small_jpeg(image_jpeg, 1024)], DESCRIBE, 900, 60)
     if data:
-        data["queries"] = [q.strip() for q in data.get("queries") or [] if isinstance(q, str) and q.strip()][:4]
+        seen, qs = set(), []
+        for q in data.get("queries") or []:
+            if isinstance(q, str) and q.strip() and q.strip().lower() not in seen:
+                seen.add(q.strip().lower())
+                qs.append(q.strip())
+        data["queries"] = qs[:6]
     return data
 
 
