@@ -24,7 +24,7 @@ from . import captioner, matcher
 from .brightdata import BrightData, BrightDataError
 from .direct import Direct
 from .extract import ProductData, extract_product, looks_blocked
-from .pricing import apply_page_data, get_or_create_product, record_price
+from .pricing import apply_page_data, get_or_create_product, record_price, save_thumb
 from .serp_parse import Listing, extract_listings
 from .stores import canonical_url, is_non_shop, is_product_url, shopping_site_filter, store_tier
 
@@ -33,7 +33,7 @@ LENS_TABS = ("exact_matches", "products", "visual_matches")
 CHANNEL_RANK = {"lens:exact_matches": 0, "lens:products": 1, "store": 2, "shopping": 2,
                 "web": 3, "organic": 3, "lens:visual_matches": 4}
 MIN_SCORE = 0.30
-CLAUDE_CHECK = 24  # candidates Claude double-checks per search
+CLAUDE_CHECK = 30  # candidates the vision model double-checks per search
 
 
 @dataclass
@@ -147,21 +147,28 @@ async def _verify(direct: Direct, bd: BrightData | None, s: Settings, image: byt
 
     if not captioner.enabled(s):
         return False
-    pool = sorted([c for c in cands if c.image_bytes], key=lambda c: -c.score.score)[:CLAUDE_CHECK]
+    # Who gets the (slower) AI check: best photo matches plus each store's top search hits,
+    # because lifestyle photos often score low on pixel similarity even for the right item.
+    def priority(c: Candidate) -> float:
+        bonus = 0.15 if c.listing.position <= 3 else (0.08 if c.listing.position <= 8 else 0.0)
+        return c.score.score + bonus
+    pool = sorted([c for c in cands if c.image_bytes], key=priority, reverse=True)[:CLAUDE_CHECK]
     verdicts = await captioner.verify(image, [c.image_bytes for c in pool], s)
     for i, c in enumerate(pool):
         if i not in verdicts:
             continue
-        same, conf = verdicts[i]
+        verdict, conf = verdicts[i]
         sig = dict(c.score.signals)
-        sig["claude"] = {"same": same, "confidence": round(conf, 2)}
+        sig["ai"] = {"verdict": verdict, "confidence": round(conf, 2)}
         score = c.score.score
-        if same and conf >= 0.6:
+        if verdict == "same" and conf >= 0.7:
             score = max(score, 0.80 + 0.18 * conf)
-        elif not same and conf >= 0.6:
-            score = min(score, s.close_threshold - 0.02)
-        elif same:
-            score = max(score, s.close_threshold + 0.02)
+        elif verdict == "same":
+            score = max(min(score, s.exact_threshold - 0.02), s.close_threshold + 0.04)
+        elif verdict == "similar":
+            score = min(max(score, 0.42 + 0.1 * conf), s.close_threshold - 0.02)
+        else:
+            score = min(score, 0.2)
         score = round(min(score, 0.99), 3)
         c.score = matcher.MatchScore(score, matcher._level(score, s.exact_threshold, s.close_threshold), sig)
     return bool(verdicts)
@@ -212,6 +219,8 @@ def _persist(search_id: str, cands: list[Candidate]) -> dict:
                 p.title = li.title
             if not p.image_url and c.images:
                 p.image_url = c.images[0]
+            if c.image_bytes:
+                save_thumb(db, p.id, c.image_bytes)
             if li.in_stock is not None and p.in_stock is None:
                 p.in_stock = li.in_stock
             if c.page and c.page.price:

@@ -235,7 +235,14 @@ def parse_flipkart(page: str) -> list[Listing]:
                 break
         if brand and title and not title.lower().startswith(brand.lower()):
             title = f"{brand} {title}"
-        amounts = [parse_price(m)[0] for m in re.findall(r"₹\s?[\d,]+", card.text())]
+        amounts = []
+        for node in card.css("div, span"):
+            if any(ch.tag in ("div", "span") for ch in node.iter()):
+                continue
+            t = node.text(strip=True)
+            m = re.fullmatch(r"₹\s?([\d,]+(?:\.\d+)?)", t)
+            if m:
+                amounts.append(parse_price(m.group(1))[0])
         amounts = [a for a in amounts if a]
         price = amounts[0] if amounts else None
         mrp = amounts[1] if len(amounts) > 1 and amounts[1] > (price or 0) else None

@@ -115,6 +115,15 @@ class SearchResult(Base):
     product: Mapped[Product] = relationship()
 
 
+class ProductThumb(Base):
+    """Small JPEG of the listing photo, served by us because stores block hotlinking."""
+
+    __tablename__ = "product_thumbs"
+    product_id: Mapped[str] = mapped_column(ForeignKey("products.id"), primary_key=True)
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class WatchItem(Base):
     __tablename__ = "watch_items"
     __table_args__ = (UniqueConstraint("client_id", "product_id"),)

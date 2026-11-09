@@ -34,13 +34,15 @@ Look at the clothing in the photo. If several garments are visible, describe the
               then progressively broader; each 3 to 8 words, Indian retail vocabulary"]
 }"""
 
-VERIFY = """The FIRST image is a photo a shopper took or saved. The following images are product
-listings, numbered in order starting at 1. For each listing decide whether it is the SAME product
-as the shopper's photo: same design, same print/embroidery pattern, same colour, same cut. A
-different colour of the same design is NOT the same product. A similar style is NOT the same product.
-Ignore background, model, pose, crop and lighting differences.
-Reply with ONLY a JSON object mapping each listing number to {"same": true|false, "confidence": 0.0-1.0},
-for example {"1": {"same": true, "confidence": 0.9}, "2": {"same": false, "confidence": 0.8}}"""
+VERIFY = """Image 1 is a photo a shopper took or saved. Image 2 is a product listing from a store.
+Decide whether image 2 is the SAME product the shopper wants, judging only the garment (ignore the
+person, pose, background, crop, lighting and photo quality).
+- "same": the identical design: same colours, same print or embroidery motifs in the same places,
+  same neckline, sleeves and silhouette. Different photos of the same catalogue item count as same.
+- "similar": same kind of garment and look, but some design detail, colour or pattern differs.
+- "different": a different kind of garment, or clearly unlike the shopper's piece.
+If unsure between "same" and "similar", answer "similar".
+Reply with ONLY JSON: {"verdict": "same" | "similar" | "different", "confidence": 0.0-1.0}"""
 
 
 def enabled(s: Settings) -> bool:
@@ -109,33 +111,34 @@ async def describe(image_jpeg: bytes, settings: Settings | None = None) -> dict 
 
 
 async def verify(image_jpeg: bytes, candidates: list[bytes | None],
-                 settings: Settings | None = None) -> dict[int, tuple[bool, float]]:
-    """Ask Claude which candidate photos show the same product. Returns {index: (same, confidence)}."""
+                 settings: Settings | None = None) -> dict[int, tuple[str, float]]:
+    """Compare each candidate photo with the shopper's photo, one pair per call.
+
+    Returns {index: (verdict, confidence)} with verdict in same / similar / different.
+    """
     s = settings or get_settings()
     if not enabled(s) or not candidates:
         return {}
     query = _small_jpeg(image_jpeg, 768)
-    usable: list[tuple[int, bytes]] = []
-    for i, b in enumerate(candidates):
+    sem = asyncio.Semaphore(6)
+
+    async def one(i: int, b: bytes | None):
         if not b:
-            continue
+            return i, None
         try:
-            usable.append((i, _small_jpeg(b, 512)))
+            cand = _small_jpeg(b, 640)
         except Exception:
-            continue
-    batches = [usable[k:k + 10] for k in range(0, len(usable), 10)]
-    results = await asyncio.gather(*[_ask(s, [query] + [b for _, b in chunk], VERIFY, 900, 90)
-                                     for chunk in batches])
-    out: dict[int, tuple[bool, float]] = {}
-    for chunk, res in zip(batches, results):
+            return i, None
+        async with sem:
+            return i, await _ask(s, [query, cand], VERIFY, 120, 60)
+
+    out: dict[int, tuple[str, float]] = {}
+    for i, res in await asyncio.gather(*[one(i, b) for i, b in enumerate(candidates)]):
         if not res:
             continue
-        for k, v in res.items():
-            try:
-                pos = int(k) - 1
-            except ValueError:
-                continue
-            if 0 <= pos < len(chunk) and isinstance(v, dict):
-                conf = v.get("confidence")
-                out[chunk[pos][0]] = (bool(v.get("same")), float(conf) if isinstance(conf, (int, float)) else 0.5)
+        verdict = str(res.get("verdict", "")).lower().strip()
+        if verdict not in ("same", "similar", "different"):
+            continue
+        conf = res.get("confidence")
+        out[i] = (verdict, float(conf) if isinstance(conf, (int, float)) else 0.5)
     return out

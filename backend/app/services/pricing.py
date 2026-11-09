@@ -11,6 +11,29 @@ from .extract import ProductData
 from .stores import canonical_url, store_info
 
 DEDUPE_WINDOW = timedelta(hours=3)
+THUMB_IDS: set[str] = set()  # products whose photo we store (see ProductThumb)
+
+
+def save_thumb(db: Session, product_id: str, image: bytes) -> None:
+    import io
+
+    from PIL import Image
+
+    from ..models import ProductThumb
+
+    try:
+        img = Image.open(io.BytesIO(image)).convert("RGB")
+        img.thumbnail((480, 640))
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=82, optimize=True)
+    except Exception:
+        return
+    t = db.get(ProductThumb, product_id)
+    if t:
+        t.data, t.updated_at = buf.getvalue(), datetime.now(timezone.utc)
+    else:
+        db.add(ProductThumb(product_id=product_id, data=buf.getvalue()))
+    THUMB_IDS.add(product_id)
 
 
 def _as_aware(dt: datetime) -> datetime:

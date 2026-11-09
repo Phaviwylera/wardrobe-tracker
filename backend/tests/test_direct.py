@@ -19,7 +19,7 @@ FLIPKART = """<div data-id="KTAH75YMWFZ2XPXS"><a class="CIaYa1" href="/aaradhiya
 <img class="MZeksS" src="https://rukminim2.flixcart.com/image/312/312/xif0q/kurta/a.jpeg?q=70"/></a>
 <div><div class="Fo1I0b">Aaradhiya Traders</div><a class="atJtCj" title="Embroidered Viscose Anarkali Kurta"
  href="/aaradhiya-women-anarkali/p/itmedb46b17074e8?pid=KTAH75YMWFZ2XPXS">x</a>
-<div>₹475</div><div>₹2,199</div><div>78% off</div></div></div>"""
+<div><div>₹475</div><div>₹2,199</div><span>78% off</span></div></div></div>"""
 
 BING = ('<a class="iusc" m="' + json.dumps({
     "purl": "https://www.myntra.com/kurtas/libas/libas-women-pink-anarkali/24567890/buy",
@@ -78,7 +78,7 @@ def test_keyless_search_flow(monkeypatch):
     async def verify(image, cands, s=None):
         verified["n"] = len(cands)
         # listing 0 = same photo (Claude agrees), listing 1 = recolour (Claude says different)
-        return {0: (True, 0.95), 1: (False, 0.9), 2: (True, 0.7)}
+        return {0: ("same", 0.95), 1: ("different", 0.9), 2: ("similar", 0.7)}
 
     same, recolour, other = _uri(_garment().resize((300, 400))), _uri(_garment(colour=(20, 60, 200))), _uri(_garment(colour=(40, 160, 70), seed=7))
 
@@ -117,8 +117,10 @@ def test_keyless_search_flow(monkeypatch):
     assert s["status"] == "done", s
     by = {r["product"]["url"]: r for r in s["results"]}
     amz = by["https://www.amazon.in/dp/B0AAAAAAAA"]
-    assert amz["match_level"] == "exact" and amz["signals"]["claude"]["same"] is True
+    assert amz["match_level"] == "exact" and amz["signals"]["ai"]["verdict"] == "same"
+    assert amz["product"]["image_url"].endswith("/thumb.jpg")
+    assert c.get(amz["product"]["image_url"]).headers["content-type"] == "image/jpeg"
     assert amz["product"]["current_price"] == 899 and amz["product"]["mrp"] == 2499 and amz["product"]["discount_pct"] == 64
-    assert by["https://www.flipkart.com/x/p/itm1?pid=KT1"]["match_level"] != "exact"
-    assert by["https://www.myntra.com/kurtas/libas/a/24567890/buy"]["match_level"] in ("close", "exact")
+    assert "https://www.flipkart.com/x/p/itm1?pid=KT1" not in by  # judged different: dropped
+    assert by["https://www.myntra.com/kurtas/libas/a/24567890/buy"]["match_level"] == "similar"
     assert s["attributes"]["garment"] == "anarkali kurta" and verified["n"] == 3

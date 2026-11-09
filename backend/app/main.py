@@ -17,11 +17,11 @@ from sqlalchemy.orm import Session
 from . import refresh as refresh_job
 from .config import get_settings
 from .db import get_db, init_db
-from .models import PricePoint, Product, QueryImage, Search, SearchResult, WatchItem
+from .models import PricePoint, Product, ProductThumb, QueryImage, Search, SearchResult, WatchItem
 from .services import captioner, matcher
 from .services.brightdata import BrightData
 from .services.pipeline import run_search, scrape_product
-from .services.pricing import apply_page_data, get_or_create_product, price_stats, record_price
+from .services.pricing import THUMB_IDS as _THUMBS, apply_page_data, get_or_create_product, price_stats, record_price
 from .services.stores import STORES, is_product_url, store_for
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -31,6 +31,9 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
+    from .db import SessionLocal as _S
+    with _S() as db:
+        _THUMBS.update(db.scalars(select(ProductThumb.product_id)).all())
     # Searches interrupted by a restart/deploy would otherwise spin forever in the UI.
     from .db import SessionLocal
     with SessionLocal() as db:
@@ -111,13 +114,19 @@ class TrackIn(BaseModel):
     url: str = Field(max_length=2048)
 
 
+def _thumb_url(p: Product) -> str | None:
+    if p.id in _THUMBS:
+        return f"/api/products/{p.id}/thumb.jpg"
+    return p.image_url
+
+
 def product_out(p: Product) -> ProductOut:
     disc = None
     if p.mrp and p.current_price and p.mrp > p.current_price:
         disc = round(100 * (p.mrp - p.current_price) / p.mrp)
     return ProductOut(
         id=p.id, url=p.url, store_key=p.store_key, store_name=p.store_name, domain=p.domain,
-        title=p.title, brand=p.brand, image_url=p.image_url, currency=p.currency,
+        title=p.title, brand=p.brand, image_url=_thumb_url(p), currency=p.currency,
         current_price=p.current_price, mrp=p.mrp, discount_pct=disc, in_stock=p.in_stock,
         sizes=p.sizes, rating=p.rating, rating_count=p.rating_count, last_checked=p.last_checked,
         live=p.scrape_ok,
@@ -248,6 +257,14 @@ def get_search(search_id: str, db: Session = Depends(get_db)) -> dict:
             lowest=min(spark[r.product_id]) if spark.get(r.product_id) else None,
         ) for r in results],
     }
+
+
+@app.get("/api/products/{product_id}/thumb.jpg")
+def product_thumb(product_id: str, db: Session = Depends(get_db)) -> Response:
+    t = db.get(ProductThumb, product_id)
+    if not t:
+        raise HTTPException(404)
+    return Response(t.data, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=604800"})
 
 
 @app.get("/api/images/{image_id}.jpg")
