@@ -48,12 +48,13 @@ async def refresh(limit: int | None = None, product_ids: list[str] | None = None
     else:
         due = _due_products(limit)
     bd = BrightData(s) if s.brightdata_unlocker_zone and s.brightdata_api_key else None
-    direct = Direct()
+    direct = Direct(per_host=1)  # slow and polite: one request at a time per store
     ok = failed = 0
     try:
         for i in range(0, len(due), 20):
             batch = due[i:i + 20]
             pages = await asyncio.gather(*[scrape_product(url, direct, bd) for _, url in batch])
+            await asyncio.sleep(2)
             with SessionLocal() as db:
                 for (pid, _), page in zip(batch, pages):
                     p = db.get(Product, pid)

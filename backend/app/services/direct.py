@@ -50,10 +50,10 @@ DIRECT_BLOCKED = tuple(BLOCKED_STORES)
 
 
 class Direct:
-    def __init__(self, timeout: float = 25.0):
+    def __init__(self, timeout: float = 25.0, per_host: int = 3):
         self.client = httpx.AsyncClient(headers=HEADERS, timeout=timeout, follow_redirects=True,
                                         http2=False)
-        self._host_sem: dict[str, asyncio.Semaphore] = defaultdict(lambda: asyncio.Semaphore(3))
+        self._host_sem: dict[str, asyncio.Semaphore] = defaultdict(lambda: asyncio.Semaphore(per_host))
         self.errors: dict[str, str] = {}
 
     async def aclose(self) -> None:
@@ -62,11 +62,11 @@ class Direct:
     async def get(self, url: str, **headers) -> httpx.Response | None:
         host = urlsplit(url).hostname or ""
         async with self._host_sem[host]:
-            for attempt in range(2):
+            for attempt in range(3):
                 try:
                     r = await self.client.get(url, headers=headers or None)
-                    if r.status_code in (429, 503) and attempt == 0:
-                        await asyncio.sleep(1.5)
+                    if r.status_code in (429, 503) and attempt < 2:
+                        await asyncio.sleep(3 * (attempt + 1))
                         continue
                     return r
                 except httpx.HTTPError as e:
