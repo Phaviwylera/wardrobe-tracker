@@ -65,17 +65,40 @@ def _small_jpeg(data: bytes, side: int) -> bytes:
     return out.getvalue()
 
 
-def _bedrock_call(s: Settings, images: list[bytes], prompt: str, max_tokens: int) -> str:
-    import boto3
-    from botocore.config import Config
+_CLIENTS: dict[str, object] = {}
 
-    client = boto3.client("bedrock-runtime", region_name=s.aws_region,
-                          config=Config(read_timeout=60, retries={"max_attempts": 3, "mode": "adaptive"}))
+
+def _client_for(region: str):
+    if region not in _CLIENTS:
+        import boto3
+        from botocore.config import Config
+
+        _CLIENTS[region] = boto3.client("bedrock-runtime", region_name=region,
+                                        config=Config(read_timeout=60, retries={"max_attempts": 4, "mode": "adaptive"}))
+    return _CLIENTS[region]
+
+
+def _bedrock_call(s: Settings, images: list[bytes], prompt: str, max_tokens: int,
+                  model: str | None = None, region: str | None = None) -> str:
     content = [{"image": {"format": "jpeg", "source": {"bytes": b}}} for b in images]
     content.append({"text": prompt})
-    r = client.converse(modelId=s.bedrock_model, messages=[{"role": "user", "content": content}],
-                        inferenceConfig={"maxTokens": max_tokens, "temperature": 0})
+    r = _client_for(region or s.bedrock_region or s.aws_region).converse(
+        modelId=model or s.bedrock_model, messages=[{"role": "user", "content": content}],
+        inferenceConfig={"maxTokens": max_tokens, "temperature": 0})
     return "".join(c.get("text", "") for c in r["output"]["message"]["content"])
+
+
+def judges(s: Settings) -> list[tuple[str, str]]:
+    """(model, region) pairs that verify matches; defaults to the describing model."""
+    out = []
+    for part in (s.verify_models or "").split(","):
+        part = part.strip()
+        if part:
+            model, _, region = part.partition("@")
+            out.append((model.strip(), (region or s.bedrock_region or s.aws_region).strip()))
+    if not out and s.llm_provider == "bedrock":
+        out = [(s.bedrock_model, s.bedrock_region or s.aws_region)]
+    return out
 
 
 async def _anthropic_call(s: Settings, images: list[bytes], prompt: str, max_tokens: int) -> str:
@@ -90,10 +113,12 @@ async def _anthropic_call(s: Settings, images: list[bytes], prompt: str, max_tok
     return "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
 
 
-async def _ask(s: Settings, images: list[bytes], prompt: str, max_tokens: int, timeout: float) -> dict | None:
+async def _ask(s: Settings, images: list[bytes], prompt: str, max_tokens: int, timeout: float,
+               model: str | None = None, region: str | None = None) -> dict | None:
     try:
         if s.llm_provider == "bedrock":
-            text = await asyncio.wait_for(asyncio.to_thread(_bedrock_call, s, images, prompt, max_tokens), timeout)
+            text = await asyncio.wait_for(
+                asyncio.to_thread(_bedrock_call, s, images, prompt, max_tokens, model, region), timeout)
         else:
             text = await asyncio.wait_for(_anthropic_call(s, images, prompt, max_tokens), timeout)
         # The verifier reasons first and ends with a JSON line; take the last JSON object.
@@ -123,35 +148,62 @@ async def describe(image_jpeg: bytes, settings: Settings | None = None) -> dict 
     return data
 
 
+def combine(votes: list[tuple[str, float]], judges_configured: int) -> tuple[str, float] | None:
+    """Merge judges' verdicts. exact needs every answering judge to say same (and two answers when
+    two or more judges are configured); one "same" against "similar" is "close"."""
+    if not votes:
+        return None
+    verdicts = [v for v, _ in votes]
+    conf = min(c for _, c in votes)
+    if all(v == "same" for v in verdicts):
+        if len(votes) >= min(2, judges_configured):
+            return "same", conf
+        return "close", conf
+    if "same" in verdicts and "different" not in verdicts:
+        return "close", conf
+    if all(v == "different" for v in verdicts):
+        return "different", conf
+    return "similar", conf
+
+
 async def verify(image_jpeg: bytes, candidates: list[bytes | None],
                  settings: Settings | None = None) -> dict[int, tuple[str, float]]:
-    """Compare each candidate photo with the shopper's photo, one pair per call.
+    """Compare each candidate photo with the shopper's photo, one pair per call, with every judge.
 
-    Returns {index: (verdict, confidence)} with verdict in same / similar / different.
+    Returns {index: (verdict, confidence)}; verdict is same / close / similar / different.
     """
     s = settings or get_settings()
     if not enabled(s) or not candidates:
         return {}
     query = _small_jpeg(image_jpeg, 768)
-    sem = asyncio.Semaphore(6)
+    js = judges(s) if s.llm_provider == "bedrock" else [(None, None)]
+    sems = {j: asyncio.Semaphore(5) for j in js}
 
     async def one(i: int, b: bytes | None):
         if not b:
-            return i, None
+            return i, []
         try:
             cand = _small_jpeg(b, 640)
         except Exception:
-            return i, None
-        async with sem:
-            return i, await _ask(s, [query, cand], VERIFY, 700, 60)
+            return i, []
+
+        async def ask(j):
+            async with sems[j]:
+                res = await _ask(s, [query, cand], VERIFY, 700, 60, model=j[0], region=j[1])
+            if not res:
+                return None
+            v = str(res.get("verdict", "")).lower().strip()
+            if v not in ("same", "similar", "different"):
+                return None
+            c = res.get("confidence")
+            return v, float(c) if isinstance(c, (int, float)) else 0.5
+
+        votes = [v for v in await asyncio.gather(*[ask(j) for j in js]) if v]
+        return i, votes
 
     out: dict[int, tuple[str, float]] = {}
-    for i, res in await asyncio.gather(*[one(i, b) for i, b in enumerate(candidates)]):
-        if not res:
-            continue
-        verdict = str(res.get("verdict", "")).lower().strip()
-        if verdict not in ("same", "similar", "different"):
-            continue
-        conf = res.get("confidence")
-        out[i] = (verdict, float(conf) if isinstance(conf, (int, float)) else 0.5)
+    for i, votes in await asyncio.gather(*[one(i, b) for i, b in enumerate(candidates)]):
+        merged = combine(votes, len(js))
+        if merged:
+            out[i] = merged
     return out

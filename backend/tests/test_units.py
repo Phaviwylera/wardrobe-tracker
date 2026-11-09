@@ -129,3 +129,14 @@ def test_matcher_levels():
     assert s_diff.score < s_same.score and s_diff.level != "exact", s_diff
     unverified = matcher.compare(q, None, "lens:exact_matches")
     assert unverified.signals["verified"] is False and unverified.level != "exact"
+
+
+def test_judge_combination():
+    from app.services.captioner import combine
+    assert combine([("same", 0.9), ("same", 0.8)], 2) == ("same", 0.8)
+    assert combine([("same", 0.9)], 2) == ("close", 0.9)          # second judge didn't answer
+    assert combine([("same", 0.9)], 1) == ("same", 0.9)
+    assert combine([("same", 0.9), ("similar", 0.8)], 2)[0] == "close"
+    assert combine([("same", 0.9), ("different", 0.8)], 2)[0] == "similar"
+    assert combine([("different", 0.9), ("different", 0.7)], 2)[0] == "different"
+    assert combine([], 2) is None

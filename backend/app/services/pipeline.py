@@ -163,7 +163,7 @@ async def _verify(direct: Direct, bd: BrightData | None, s: Settings, image: byt
         score = c.score.score
         if verdict == "same" and conf >= 0.7:
             score = max(score, 0.80 + 0.18 * conf)
-        elif verdict == "same":
+        elif verdict in ("same", "close"):
             score = max(min(score, s.exact_threshold - 0.02), s.close_threshold + 0.04)
         elif verdict == "similar":
             score = min(max(score, 0.42 + 0.1 * conf), s.close_threshold - 0.02)

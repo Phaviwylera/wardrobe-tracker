@@ -28,7 +28,11 @@ class Settings(BaseSettings):
     llm_provider: str = "none"  # none | anthropic | bedrock (Amazon Nova or Claude through the IAM role)
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-haiku-5-5"
-    bedrock_model: str = ""  # your Bedrock model / inference-profile ID for a vision-capable Claude
+    bedrock_model: str = ""   # vision model that reads the photo, e.g. us.meta.llama4-maverick-17b-instruct-v1:0
+    bedrock_region: str = ""  # region of bedrock_model (defaults to aws_region)
+    # Judges that confirm "same product"; comma list of model@region. A listing is exact only when
+    # every judge that answered says same (and at least two answered, if two are configured).
+    verify_models: str = ""
     aws_region: str = "ap-south-1"
 
     # --- Tuning ---
