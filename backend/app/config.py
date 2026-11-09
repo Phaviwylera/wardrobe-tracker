@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     # straight to Lens instead of making Lens fetch a public URL (needed for localhost dev).
     brightdata_customer_id: str = ""
     brightdata_serp_zone_password: str = ""
+    # --- Lens (reverse image search); keys may also live in AWS SSM Parameter Store /styletrail/ ---
+    serpapi_key: str = ""                 # SerpApi Google Lens
+    serpapi_lens_types: str = "exact_matches,products"
+    google_vision_key: str = ""           # Google Cloud Vision WEB_DETECTION
     country: str = "in"
     language: str = "en"
 
@@ -53,7 +57,8 @@ class Settings(BaseSettings):
     def model_post_init(self, _ctx) -> None:
         # Values pasted into dashboards often carry spaces, newlines or quotes.
         for f in ("brightdata_api_key", "brightdata_serp_zone", "brightdata_unlocker_zone",
-                  "brightdata_customer_id", "brightdata_serp_zone_password", "anthropic_api_key", "admin_token"):
+                  "brightdata_customer_id", "brightdata_serp_zone_password", "anthropic_api_key", "admin_token",
+                  "serpapi_key", "google_vision_key"):
             v = getattr(self, f) or ""
             setattr(self, f, v.strip().strip('"').strip("'").strip())
         # On Render, web services get RENDER_EXTERNAL_URL automatically; use it so Lens can fetch uploads.

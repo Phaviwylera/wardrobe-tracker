@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from ..config import Settings, get_settings
 from ..db import SessionLocal
 from ..models import QueryImage, Search, SearchResult
-from . import captioner, matcher
+from . import captioner, lens, matcher
 from .brightdata import BrightData, BrightDataError
 from .direct import Direct
 from .extract import ProductData, extract_product, looks_blocked
@@ -303,15 +303,17 @@ async def run_search(search_id: str, settings: Settings | None = None,
         _update(search_id, status="searching", stage="Reading the photo", progress=0.08)
         qf_task = asyncio.create_task(asyncio.to_thread(matcher.features, image))
         caption_task = asyncio.create_task(captioner.describe(image, s))
-        lens_task = asyncio.gather(*[_lens(bd, s, image_id, image, t) for t in LENS_TABS]) if bd else None
+        public = s.public_base_url.rstrip("/")
+        img_url = None if ("localhost" in public or "127.0.0.1" in public) else f"{public}/api/images/{image_id}.jpg"
+        lens_jobs = [_lens(bd, s, image_id, image, t) for t in LENS_TABS] if bd else []
+        lens_jobs.append(lens.search(s, image, img_url))
+        lens_task = asyncio.gather(*lens_jobs, return_exceptions=True)
 
         attrs = await caption_task
         listings: list[Listing] = []
         if attrs and attrs.get("queries"):
             _update(search_id, attributes=attrs, progress=0.2,
                     stage="Searching Amazon, Flipkart, Tata CLiQ, Myntra, AJIO and brand stores")
-            public = s.public_base_url.rstrip("/")
-            img_url = None if ("localhost" in public or "127.0.0.1" in public) else f"{public}/api/images/{image_id}.jpg"
             jobs = [direct.search_all(attrs["queries"], img_url, attrs.get("store_queries"))]
             if bd:
                 jobs.append(_serp_text(bd, attrs["queries"]))
@@ -322,8 +324,11 @@ async def run_search(search_id: str, settings: Settings | None = None,
                     listings += res
         elif bd is None:
             raise RuntimeError("Couldn't read the photo. Try a clearer picture where the garment fills the frame.")
-        if lens_task:
-            listings += [li for group in await lens_task for li in group]
+        for group in await lens_task:
+            if isinstance(group, Exception):
+                log.warning("lens failed: %s", type(group).__name__)
+            else:
+                listings += group
 
         cands = _collect(listings, s.max_candidates)
         if not cands:

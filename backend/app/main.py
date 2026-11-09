@@ -180,9 +180,11 @@ async def brightdata_check() -> dict:
 
 
 @app.get("/api/health")
-def health() -> dict:
+async def health() -> dict:
+    from .services import lens as lens_mod
     return {
         "ok": True,
+        "lens": {**(await lens_mod.configured(settings)), "brightdata": settings.brightdata_ready},
         "brightdata": settings.brightdata_ready,
         "search": "direct+claude" if captioner.enabled(settings) else ("brightdata" if settings.brightdata_ready else "not configured"),
         "model": settings.bedrock_model if settings.llm_provider == "bedrock" else settings.llm_provider,

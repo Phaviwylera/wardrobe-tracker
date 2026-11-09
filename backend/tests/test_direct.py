@@ -163,3 +163,21 @@ def test_savana_from_bing():
                                   "murl": "https://img101.savana.com/a.jpg", "t": "Mint Tie Neck Top - Savana"}).replace('"', "&quot;") + '"></a>'
     g = parse_bing_images(page, "savana.com")
     assert g and g[0].title == "Mint Tie Neck Top" and g[0].url.startswith("https://www.savana.com/details/")
+
+
+def test_lens_parsers():
+    from app.services.lens import parse_serpapi, parse_vision
+    doc = {"exact_matches": [{"position": 1, "title": "Atelier Rebel Tie-Up Neck Bell Sleeve Top", "source": "Myntra",
+                              "link": "https://www.myntra.com/tops/atelier+rebel/x/47750458/buy", "price": "₹1,299",
+                              "extracted_price": 1299.0, "thumbnail": "https://serpapi.com/t.jpg"}],
+           "visual_matches": [{"title": "Similar", "link": "https://www.ajio.com/p/4601", "thumbnail": "https://x/y.jpg"}]}
+    got = parse_serpapi(doc)
+    assert got[0].channel == "lens:exact_matches" and got[0].price == 1299 and "47750458" in got[0].url
+    assert got[1].channel == "lens:visual_matches"
+    v = {"responses": [{"webDetection": {"pagesWithMatchingImages": [
+        {"url": "https://www.myntra.com/47750458", "pageTitle": "Buy <b>Atelier Rebel</b> Top",
+         "fullMatchingImages": [{"url": "https://assets.myntassets.com/a.jpg"}]},
+        {"url": "https://www.savana.com/details/x-1", "pageTitle": "Top", "partialMatchingImages": [{"url": "https://img101.savana.com/b.jpg"}]}]}}]}
+    pv = parse_vision(v)
+    assert pv[0].channel == "lens:exact_matches" and pv[0].title == "Buy Atelier Rebel Top"
+    assert pv[1].channel == "lens:products" and pv[1].image_url.endswith("b.jpg")
