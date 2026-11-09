@@ -177,7 +177,7 @@ async def verify(image_jpeg: bytes, candidates: list[bytes | None],
         return {}
     query = _small_jpeg(image_jpeg, 768)
     js = judges(s) if s.llm_provider == "bedrock" else [(None, None)]
-    sems = {j: asyncio.Semaphore(5) for j in js}
+    sems = {j: asyncio.Semaphore(10) for j in js}
 
     async def one(i: int, b: bytes | None):
         if not b:
@@ -189,7 +189,7 @@ async def verify(image_jpeg: bytes, candidates: list[bytes | None],
 
         async def ask(j):
             async with sems[j]:
-                res = await _ask(s, [query, cand], VERIFY, 700, 60, model=j[0], region=j[1])
+                res = await _ask(s, [query, cand], VERIFY, 550, 60, model=j[0], region=j[1])
             if not res:
                 return None
             v = str(res.get("verdict", "")).lower().strip()

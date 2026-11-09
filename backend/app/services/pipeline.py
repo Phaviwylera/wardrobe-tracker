@@ -33,7 +33,7 @@ LENS_TABS = ("exact_matches", "products", "visual_matches")
 CHANNEL_RANK = {"lens:exact_matches": 0, "lens:products": 1, "store": 2, "shopping": 2,
                 "web": 3, "organic": 3, "lens:visual_matches": 4}
 MIN_SCORE = 0.30
-CLAUDE_CHECK = 36  # candidates the vision model double-checks per search
+CLAUDE_CHECK = 32  # candidates the vision model double-checks per search
 
 
 @dataclass

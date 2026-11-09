@@ -9,7 +9,7 @@ from tests.test_units import _bytes, _garment
 AMAZON = """<div role="listitem" data-asin="B0DKXZGWWY" data-component-type="s-search-result">
 <a class="a-link-normal" href="/GoSriKi-Anarkali/dp/B0DKXZGWWY/ref=sr_1_1"><img class="s-image"
  src="https://m.media-amazon.com/images/I/71uq.jpg" alt="GoSriKi Women's Rayon Anarkali Kurta"/></a>
-<h2 aria-label="Women's Rayon Viscose Embroidered Anarkali Kurta"><span>Women's Rayon</span></h2>
+<h2 aria-label="Sponsored Ad - Women's Rayon Viscose Embroidered Anarkali Kurta"><span>Women's Rayon</span></h2>
 <span class="a-price"><span class="a-offscreen">₹699</span></span>
 <span class="a-price a-text-price" data-a-strike="true"><span class="a-offscreen">₹2,999</span></span>
 </div>
@@ -43,6 +43,7 @@ def test_parsers():
     a = parse_amazon(AMAZON)
     assert len(a) == 1 and a[0].url == "https://www.amazon.in/dp/B0DKXZGWWY"
     assert a[0].price == 699 and a[0].extra["mrp"] == 2999 and "Anarkali" in a[0].title
+    assert "Sponsored" not in a[0].title
 
     f = parse_flipkart(FLIPKART)
     assert f[0].url == "https://www.flipkart.com/aaradhiya-women-anarkali/p/itmedb46b17074e8?pid=KTAH75YMWFZ2XPXS"

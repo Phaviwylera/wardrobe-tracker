@@ -216,6 +216,7 @@ def parse_amazon(page: str) -> list[Listing]:
             title = alt
         if brand and title and not title.lower().startswith(brand.lower()):
             title = f"{brand} {title}"
+        title = re.sub(r"\s*Sponsored\s+Ad\s*[-–]\s*", " ", title or "", flags=re.I).strip()
         price_node = card.css_first("span.a-price:not(.a-text-price) span.a-offscreen")
         mrp_node = card.css_first("span.a-price.a-text-price span.a-offscreen")
         price = parse_price(price_node.text(strip=True))[0] if price_node else None
