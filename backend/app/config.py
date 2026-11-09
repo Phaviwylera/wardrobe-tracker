@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     language: str = "en"
 
     # --- Optional vision captioner (Claude) to turn the photo into shopping queries ---
-    llm_provider: str = "none"  # none | anthropic | bedrock
+    llm_provider: str = "none"  # none | anthropic | bedrock (Amazon Nova or Claude through the IAM role)
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-haiku-5-5"
     bedrock_model: str = ""  # your Bedrock model / inference-profile ID for a vision-capable Claude

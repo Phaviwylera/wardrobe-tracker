@@ -38,12 +38,12 @@ HEADERS = {"User-Agent": UA, "Accept-Language": "en-IN,en;q=0.9",
 
 # Shopify-based Indian women's wear brands with a public search endpoint.
 SHOPIFY_STORES = [
-    "www.libas.in", "www.berrylush.com", "thelabellife.com", "www.snitch.co.in",
-    "www.okhai.org", "www.globaldesi.in", "www.kalkifashion.com", "www.luluandsky.com",
-    "www.jaypore.com", "www.houseofindya.com",
+    "www.libas.in", "www.berrylush.com", "thelabellife.com", "www.okhai.org",
+    "www.globaldesi.in", "www.luluandsky.com", "www.jaypore.com", "www.houseofindya.com",
 ]
 # Stores that refuse server requests; found through Bing Images instead.
 BLOCKED_STORES = ["myntra.com", "ajio.com", "nykaafashion.com", "meesho.com"]
+STORE_WORD = {"myntra.com": "myntra", "ajio.com": "ajio", "nykaafashion.com": "nykaa fashion", "meesho.com": "meesho"}
 DIRECT_BLOCKED = tuple(BLOCKED_STORES)
 
 
@@ -114,7 +114,8 @@ class Direct:
             return []
 
     async def bing_images(self, q: str, site: str) -> list[Listing]:
-        url = (f"https://www.bing.com/images/search?q={quote_plus(q + ' site:' + site)}"
+        # Bing ignores site: for server requests; naming the store in the query works.
+        url = (f"https://www.bing.com/images/search?q={quote_plus(q + ' ' + STORE_WORD.get(site, site))}"
                "&form=HDRSC2&first=1&cc=IN&setlang=en-IN")
         r = await self.get(url)
         if not r or r.status_code != 200:
@@ -185,8 +186,10 @@ def parse_amazon(page: str) -> list[Listing]:
             title = h2.attributes.get("aria-label") or h2.text(strip=True)
         brand_node = card.css_first("h2 + div h2, .a-row.a-size-base-plus, span.a-size-base-plus.a-color-base")
         brand = brand_node.text(strip=True) if brand_node else ""
-        if img and not title:
-            title = img.attributes.get("alt") or ""
+        alt = img.attributes.get("alt") if img else ""
+        title = re.sub(r"^\s*Sponsored\s+Ad\s*[-–]\s*", "", title or "", flags=re.I)
+        if alt and (not title or len(title) < 25 or len(alt) > len(title)):
+            title = alt
         if brand and title and not title.lower().startswith(brand.lower()):
             title = f"{brand} {title}"
         price_node = card.css_first("span.a-price:not(.a-text-price) span.a-offscreen")
