@@ -140,3 +140,15 @@ def test_judge_combination():
     assert combine([("same", 0.9), ("different", 0.8)], 2)[0] == "similar"
     assert combine([("different", 0.9), ("different", 0.7)], 2)[0] == "different"
     assert combine([], 2) is None
+
+
+def test_collect_gives_every_store_a_share():
+    from app.services.pipeline import _collect
+    from app.services.serp_parse import Listing
+    ls = [Listing(url=f"https://www.amazon.in/dp/B0{i:08d}", title="a", price=100, channel="store", position=i + 1)
+          for i in range(60)]
+    ls += [Listing(url=f"https://www.myntra.com/tops/x/top-{i}/{1690000 + i}/buy", title="m", channel="web", position=i + 1)
+           for i in range(10)]
+    got = _collect(ls, 20)
+    assert sum("myntra" in c.canon for c in got) == 10
+    assert got[1].canon.startswith("https://www.myntra.com") or got[0].canon.startswith("https://www.myntra.com")

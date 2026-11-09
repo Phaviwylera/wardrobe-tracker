@@ -90,12 +90,15 @@ def test_keyless_search_flow(monkeypatch):
 
     async def verify(image, cands, s=None):
         verified["n"] = len(cands)
-        # listing 0 = same photo (Claude agrees), listing 1 = recolour (Claude says different)
-        return {0: ("same", 0.95), 1: ("different", 0.9), 2: ("similar", 0.7)}
+        out = {}
+        for i, b in enumerate(cands):  # judge by which picture it is, not by position
+            out[i] = ("different", 0.9) if b == recolour_b else ("similar", 0.7)
+        return out
 
     same, recolour, other = _uri(_garment().resize((300, 400))), _uri(_garment(colour=(20, 60, 200))), _uri(_garment(colour=(40, 160, 70), seed=7))
+    recolour_b = base64.b64decode(recolour.split(",", 1)[1])
 
-    async def search_all(self, queries, image_url=None):
+    async def search_all(self, queries, image_url=None, store_queries=None):
         return [
             Listing(url="https://www.amazon.in/dp/B0AAAAAAAA", title="Pink Anarkali", image_url=same, price=899,
                     currency="INR", channel="store", extra={"mrp": 2499}),
@@ -130,13 +133,13 @@ def test_keyless_search_flow(monkeypatch):
     assert s["status"] == "done", s
     by = {r["product"]["url"]: r for r in s["results"]}
     amz = by["https://www.amazon.in/dp/B0AAAAAAAA"]
-    assert amz["match_level"] == "exact" and amz["signals"]["ai"]["verdict"] == "same"
+    assert amz["match_level"] == "exact" and amz["signals"]["identical_photo"] is True and amz["rank"] == 0
     assert amz["product"]["image_url"].endswith("/thumb.jpg")
     assert c.get(amz["product"]["image_url"]).headers["content-type"] == "image/jpeg"
     assert amz["product"]["current_price"] == 899 and amz["product"]["mrp"] == 2499 and amz["product"]["discount_pct"] == 64
     assert "https://www.flipkart.com/x/p/itm1?pid=KT1" not in by  # judged different: dropped
     assert by["https://www.myntra.com/kurtas/libas/a/24567890/buy"]["match_level"] == "similar"
-    assert s["attributes"]["garment"] == "anarkali kurta" and verified["n"] == 3
+    assert s["attributes"]["garment"] == "anarkali kurta" and verified["n"] == 2  # identical photo skips the AI check
 
 
 def test_tatacliq_pdp():

@@ -151,15 +151,20 @@ class Direct:
             return []
         return parse_yandex(r.text)
 
-    async def search_all(self, queries: list[str], image_url: str | None = None) -> list[Listing]:
+    async def search_all(self, queries: list[str], image_url: str | None = None,
+                         store_queries: list[str] | None = None) -> list[Listing]:
+        store_queries = store_queries or []
         jobs: list = []
-        for i, q in enumerate(queries[:6]):
-            if i < 4:
-                jobs += [self.amazon(q), self.flipkart(q), self.tatacliq(q)]
-            if i < 2:
-                jobs += [self.bing_images(q, site) for site in BLOCKED_STORES]
-            if i < 3:
-                jobs += [self.shopify(h, q) for h in SHOPIFY_STORES]
+        marketplace_qs = queries[:4] + store_queries[:1]
+        for q in marketplace_qs:
+            jobs += [self.amazon(q), self.flipkart(q), self.tatacliq(q)]
+        for q in queries[:3]:
+            jobs += [self.shopify(h, q) for h in SHOPIFY_STORES]
+        # Myntra & AJIO are found through Bing; their own title wording finds the exact listing best.
+        bing_qs = store_queries[:3] + queries[:1]
+        for site in BLOCKED_STORES:
+            for q in (bing_qs if site in ("myntra.com", "ajio.com") else bing_qs[:2]):
+                jobs.append(self.bing_images(q, site))
         if image_url:
             jobs.append(self.yandex_similar(image_url))
         out: list[Listing] = []
@@ -341,8 +346,10 @@ def parse_bing_images(page: str, site: str) -> list[Listing]:
         seen.add(purl)
         title = htmlmod.unescape(d.get("t") or "").replace("", "").replace("", "")
         title = re.sub(r"\s*[|\-–]\s*(Myntra|AJIO|Nykaa Fashion|Meesho).*$", "", title, flags=re.I)
-        out.append(Listing(url=purl, title=title[:300], image_url=murl or d.get("turl"),
-                           price=None, source=site, channel="web", position=len(out) + 1))
+        turl = d.get("turl")
+        out.append(Listing(url=purl, title=title[:300], image_url=murl or turl,
+                           price=None, source=site, channel="web", position=len(out) + 1,
+                           extra={"alt_images": [turl] if murl and turl else []}))
     return out[:12]
 
 

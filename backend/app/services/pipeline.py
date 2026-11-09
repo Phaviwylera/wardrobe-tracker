@@ -26,14 +26,14 @@ from .direct import Direct
 from .extract import ProductData, extract_product, looks_blocked
 from .pricing import apply_page_data, get_or_create_product, record_price, save_thumb
 from .serp_parse import Listing, extract_listings
-from .stores import canonical_url, is_non_shop, is_product_url, shopping_site_filter, store_tier
+from .stores import canonical_url, is_non_shop, is_product_url, shopping_site_filter, store_for, store_tier
 
 log = logging.getLogger(__name__)
 LENS_TABS = ("exact_matches", "products", "visual_matches")
 CHANNEL_RANK = {"lens:exact_matches": 0, "lens:products": 1, "store": 2, "shopping": 2,
                 "web": 3, "organic": 3, "lens:visual_matches": 4}
 MIN_SCORE = 0.30
-CLAUDE_CHECK = 32  # candidates the vision model double-checks per search
+CLAUDE_CHECK = 36  # candidates the vision model double-checks per search
 
 
 @dataclass
@@ -104,6 +104,9 @@ def _collect(listings: list[Listing], limit: int) -> list[Candidate]:
         better = CHANNEL_RANK.get(li.channel, 9) < CHANNEL_RANK.get(c.listing.channel, 9)
         if li.image_url and li.image_url not in c.images:
             c.images.insert(0, li.image_url) if better else c.images.append(li.image_url)
+        for alt in li.extra.get("alt_images") or []:
+            if alt and alt not in c.images:
+                c.images.append(alt)
         price, currency, extra = c.listing.price, c.listing.currency, c.listing.extra
         if better:
             c.listing = li
@@ -112,12 +115,30 @@ def _collect(listings: list[Listing], limit: int) -> list[Candidate]:
             c.listing.currency = li.currency if li.price else currency
             if not c.listing.extra.get("mrp") and extra.get("mrp"):
                 c.listing.extra["mrp"] = extra["mrp"]
-    cands = sorted(by_canon.values(),
-                   key=lambda c: (CHANNEL_RANK.get(c.best_channel, 9), store_tier(c.canon), c.listing.position))
-    return cands[:limit]
+    # Fair share: take the best-ranked listing from every source in turn (Amazon, Flipkart, Myntra,
+    # AJIO, Yandex, ...) so one big store can't crowd the others out of the comparison step.
+    groups: dict[tuple, list[Candidate]] = {}
+    for c in by_canon.values():
+        key = (0 if c.best_channel.startswith("lens:") else 1, store_for(c.canon).key or c.canon.split("/")[2])
+        groups.setdefault(key, []).append(c)
+    for g in groups.values():
+        g.sort(key=lambda c: (CHANNEL_RANK.get(c.best_channel, 9), c.listing.position))
+    ordered: list[Candidate] = []
+    lens_first = [k for k in groups if k[0] == 0] + [k for k in groups if k[0] == 1]
+    depth = 0
+    while len(ordered) < limit and any(len(groups[k]) > depth for k in lens_first):
+        for k in lens_first:
+            if depth < len(groups[k]) and len(ordered) < limit:
+                ordered.append(groups[k][depth])
+        depth += 1
+    return ordered
 
 
 # --------------------------------------------------------------------------- verification
+def _identical(c: Candidate) -> bool:
+    sig = c.score.signals if c.score else {}
+    return bool(sig.get("verified")) and (sig.get("hash", 0) >= 0.85 or sig.get("orb", 0) >= 0.85) \
+        and sig.get("colour", 0) >= 0.4
 async def _image(direct: Direct, bd: BrightData | None, url: str) -> bytes | None:
     data = await direct.fetch_image(url)
     if data is None and bd is not None:
@@ -144,6 +165,9 @@ async def _verify(direct: Direct, bd: BrightData | None, s: Settings, image: byt
     feats = await asyncio.gather(*[_load(direct, bd, c) for c in cands])
     for c, f in zip(cands, feats):
         c.score = matcher.compare(qf, f, c.best_channel, s.exact_threshold, s.close_threshold)
+        if _identical(c):
+            # Same photo as the shopper's (e.g. a screenshot of this very listing): certain match.
+            c.score = matcher.MatchScore(0.995, "exact", {**c.score.signals, "identical_photo": True})
 
     if not captioner.enabled(s):
         return False
@@ -152,7 +176,7 @@ async def _verify(direct: Direct, bd: BrightData | None, s: Settings, image: byt
     def priority(c: Candidate) -> float:
         bonus = 0.15 if c.listing.position <= 3 else (0.08 if c.listing.position <= 8 else 0.0)
         return c.score.score + bonus
-    pool = sorted([c for c in cands if c.image_bytes], key=priority, reverse=True)[:CLAUDE_CHECK]
+    pool = sorted([c for c in cands if c.image_bytes and not _identical(c)], key=priority, reverse=True)[:CLAUDE_CHECK]
     verdicts = await captioner.verify(image, [c.image_bytes for c in pool], s)
     for i, c in enumerate(pool):
         if i not in verdicts:
@@ -277,7 +301,7 @@ async def run_search(search_id: str, settings: Settings | None = None,
                     stage="Searching Amazon, Flipkart, Tata CLiQ, Myntra, AJIO and brand stores")
             public = s.public_base_url.rstrip("/")
             img_url = None if ("localhost" in public or "127.0.0.1" in public) else f"{public}/api/images/{image_id}.jpg"
-            jobs = [direct.search_all(attrs["queries"], img_url)]
+            jobs = [direct.search_all(attrs["queries"], img_url, attrs.get("store_queries"))]
             if bd:
                 jobs.append(_serp_text(bd, attrs["queries"]))
             for res in await asyncio.gather(*jobs, return_exceptions=True):

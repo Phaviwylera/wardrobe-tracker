@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     aws_region: str = "ap-south-1"
 
     # --- Tuning ---
-    max_candidates: int = 60          # links verified per search
+    max_candidates: int = 110         # listings compared with the photo per search
     max_product_pages: int = 30       # product pages scraped for live price per search
     http_concurrency: int = 8
     request_timeout_s: float = 60.0

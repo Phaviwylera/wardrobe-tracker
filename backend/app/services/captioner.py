@@ -22,7 +22,8 @@ DESCRIBE = """You are a fashion merchandiser for Indian e-commerce (Myntra, AJIO
 Look at the clothing in the photo. If several garments are visible, describe the most prominent one
 (for a set, describe the set). Reply with ONLY a JSON object:
 {
-  "garment": "e.g. anarkali kurta set, co-ord set, saree, bodycon dress, crop top, palazzo",
+  "garment": "the product type as Myntra names it, e.g. shirt style top, regular top, crop top, tunic,
+              kurta, anarkali kurta set, co-ords, A-line dress, bodycon dress, saree, palazzo trousers",
   "gender": "women | men | girls | boys | unisex",
   "colours": ["primary colour", "secondary colour"],
   "pattern": "solid / floral print / ikat / bandhani / block print / embroidered / ...",
@@ -34,7 +35,11 @@ Look at the clothing in the photo. If several garments are visible, describe the
               (brand if readable, colour, print or work type, garment). Indian stores often name
               colours loosely, so add variants with the neighbouring colour names they use (for example
               red / maroon / pink / rust, blue / navy / teal). If you cannot tell printed from embroidered,
-              include both. End with one broad query (colour + garment)."]
+              include both. End with one broad query (colour + garment)."],
+  "store_queries": ["3 queries written exactly like Myntra / AJIO product titles, without a brand:
+              'Women <Colour> <Pattern or work> <Product type>', e.g. 'Women Green Solid Shirt Style Top',
+              'Green Solid Shirt Style Top', 'Women Maroon Embroidered Anarkali Kurta'. Use Myntra's product
+              type words (Shirt Style Top, Regular Top, Kurta, A-Line Dress, Co-Ords, ...)."]
 }"""
 
 VERIFY = """Image 1 is a photo a shopper took or saved. Image 2 is a product listing from a store.
@@ -145,6 +150,11 @@ async def describe(image_jpeg: bytes, settings: Settings | None = None) -> dict 
                 seen.add(q.strip().lower())
                 qs.append(q.strip())
         data["queries"] = qs[:6]
+        sq = []
+        for q in data.get("store_queries") or []:
+            if isinstance(q, str) and q.strip() and q.strip().lower() not in {x.lower() for x in sq}:
+                sq.append(q.strip())
+        data["store_queries"] = sq[:3]
     return data
 
 
