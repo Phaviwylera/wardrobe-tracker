@@ -55,7 +55,9 @@ def get_or_create_product(db: Session, url: str, *, title: str | None = None,
 
 
 def apply_page_data(p: Product, d: ProductData) -> None:
-    p.title = d.title or p.title
+    # Keep the listing's own title; page <title> tags are often generic site names.
+    if not p.title or ("jsonld" in d.sources or "myntra" in d.sources or "amazon_dom" in d.sources):
+        p.title = d.title or p.title
     p.brand = d.brand or p.brand
     p.image_url = d.image_url or p.image_url
     p.currency = d.currency or p.currency or "INR"

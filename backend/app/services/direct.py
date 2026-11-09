@@ -41,6 +41,8 @@ SHOPIFY_STORES = [
     "www.libas.in", "www.berrylush.com", "thelabellife.com", "www.okhai.org",
     "www.globaldesi.in", "www.luluandsky.com", "www.jaypore.com", "www.houseofindya.com",
 ]
+# Single-page-app stores whose product page has no server-rendered price; refreshed via their API.
+SPA_STORES = ("tatacliq.com",)
 # Stores that refuse server requests; found through Bing Images instead.
 BLOCKED_STORES = ["myntra.com", "ajio.com", "nykaafashion.com", "meesho.com"]
 STORE_WORD = {"myntra.com": "myntra", "ajio.com": "ajio", "nykaafashion.com": "nykaa fashion", "meesho.com": "meesho"}
@@ -123,6 +125,17 @@ class Direct:
             return []
         return parse_bing_images(r.text, site)
 
+    async def tatacliq_product(self, url: str) -> Listing | None:
+        """Current price for one Tata CLiQ product, by searching its product code."""
+        m = re.search(r"/p-(mp\d+)", url, re.I)
+        if not m:
+            return None
+        code = m.group(1).upper()
+        for it in await self.tatacliq(code):
+            if code.lower() in it.url.lower():
+                return it
+        return None
+
     def _fail(self, name: str, r: httpx.Response | None) -> None:
         self.errors[name] = "no response" if r is None else f"HTTP {r.status_code}"
 
@@ -132,7 +145,7 @@ class Direct:
             jobs += [self.amazon(q), self.flipkart(q), self.tatacliq(q)]
             if i < 2:
                 jobs += [self.bing_images(q, site) for site in BLOCKED_STORES]
-            if i == 0:
+            if i < 2:
                 jobs += [self.shopify(h, q) for h in SHOPIFY_STORES]
         out: list[Listing] = []
         for res in await asyncio.gather(*jobs, return_exceptions=True):
@@ -145,7 +158,7 @@ class Direct:
     # ------------------------------------------------------------------ pages / images
     async def fetch_page(self, url: str) -> str | None:
         host = urlsplit(url).hostname or ""
-        if any(host.endswith(d) for d in DIRECT_BLOCKED):
+        if any(host.endswith(d) for d in DIRECT_BLOCKED + SPA_STORES):
             return None
         r = await self.get(url)
         if r is None or r.status_code != 200:

@@ -35,14 +35,15 @@ Look at the clothing in the photo. If several garments are visible, describe the
 }"""
 
 VERIFY = """Image 1 is a photo a shopper took or saved. Image 2 is a product listing from a store.
-Decide whether image 2 is the SAME product the shopper wants, judging only the garment (ignore the
-person, pose, background, crop, lighting and photo quality).
-- "same": the identical design: same colours, same print or embroidery motifs in the same places,
-  same neckline, sleeves and silhouette. Different photos of the same catalogue item count as same.
-- "similar": same kind of garment and look, but some design detail, colour or pattern differs.
-- "different": a different kind of garment, or clearly unlike the shopper's piece.
-If unsure between "same" and "similar", answer "similar".
-Reply with ONLY JSON: {"verdict": "same" | "similar" | "different", "confidence": 0.0-1.0}"""
+Is image 2 the exact same product as the garment in image 1? Judge only the garment, not the person,
+pose, background or photo quality.
+First list the distinguishing details of each garment (colours, print or embroidery motifs and where
+they sit, neckline, yoke, sleeves, hem or border, dupatta). Then compare them point by point.
+"same" means the identical catalogue design: every visible distinguishing detail matches. Same garment
+type and colour alone is NOT enough.
+"similar" means same type and overall look but at least one design detail differs or cannot be confirmed.
+"different" means a different kind of garment or clearly unlike it.
+End your reply with a JSON line: {"verdict": "same" | "similar" | "different", "confidence": 0.0-1.0}"""
 
 
 def enabled(s: Settings) -> bool:
@@ -92,6 +93,10 @@ async def _ask(s: Settings, images: list[bytes], prompt: str, max_tokens: int, t
             text = await asyncio.wait_for(asyncio.to_thread(_bedrock_call, s, images, prompt, max_tokens), timeout)
         else:
             text = await asyncio.wait_for(_anthropic_call(s, images, prompt, max_tokens), timeout)
+        # The verifier reasons first and ends with a JSON line; take the last JSON object.
+        tail = re.findall(r"\{[^{}]*\"verdict\"[^{}]*\}", text)
+        if tail:
+            return json.loads(tail[-1])
         m = re.search(r"\{.*\}", text, re.S)
         data = json.loads(m.group(0)) if m else None
         return data if isinstance(data, dict) else None
@@ -130,7 +135,7 @@ async def verify(image_jpeg: bytes, candidates: list[bytes | None],
         except Exception:
             return i, None
         async with sem:
-            return i, await _ask(s, [query, cand], VERIFY, 120, 60)
+            return i, await _ask(s, [query, cand], VERIFY, 700, 60)
 
     out: dict[int, tuple[str, float]] = {}
     for i, res in await asyncio.gather(*[one(i, b) for i, b in enumerate(candidates)]):
