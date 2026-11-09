@@ -29,13 +29,17 @@ export default function ResultRow({ r, cheapest }: { r: Result; cheapest: boolea
           {p.sizes && p.sizes.length > 0 && (
             <span>Sizes {p.sizes.filter((s) => s.available !== false).map((s) => s.label).slice(0, 6).join(", ") || "none left"}</span>
           )}
-          {!p.live && p.current_price != null && <span>Price from search listing</span>}
+          {!p.live && p.current_price != null && <span>Price from search results</span>}
           {atLowest && <span style={{ color: "var(--leaf)" }}>At its lowest</span>}
         </div>
       </div>
       <div className="row-side">
         <div>
-          <div className="price num">{money(p.current_price, p.currency)}</div>
+          {p.current_price != null ? (
+            <div className="price num">{money(p.current_price, p.currency)}</div>
+          ) : (
+            <div className="small muted">See price on store</div>
+          )}
           {p.mrp && p.discount_pct ? (
             <div className="small">
               <span className="mrp num">{money(p.mrp)}</span> <span className="off">{p.discount_pct}% off</span>
