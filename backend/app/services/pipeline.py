@@ -1,12 +1,13 @@
-"""Photo -> verified product links with live prices.
+"""Photo -> verified product links with prices.
 
-  1. discover   Google Lens (exact matches, products, visual matches) on the photo, plus
-                optional Claude-written text queries on Google Shopping / site-filtered Google
-  2. filter     keep single-product pages on shops, collapse duplicates by canonical URL
-  3. verify     download every candidate image and score it against the photo (matcher.py)
-  4. price      scrape the best candidates' pages through Web Unlocker for live price,
-                MRP, sizes and stock; fall back to the SERP price snippet
-  5. persist    products, a price-history point each, ranked search results
+  1. describe   Claude (Bedrock) reads the photo: garment, colours, details, search queries
+  2. discover   direct store searches (Amazon.in, Flipkart, Tata CLiQ, Shopify brands, Bing
+                Images for Myntra/AJIO/Nykaa/Meesho); plus Google Lens when Bright Data is set
+  3. filter     keep single-product pages on shops, collapse duplicates by canonical URL
+  4. verify     compare every listing photo with the shopper's photo (matcher.py), then ask
+                Claude to confirm the closest ones are the same product
+  5. price      listing prices; product pages for sizes and stock where the store allows it
+  6. persist    products, a price-history point each, ranked search results
 """
 from __future__ import annotations
 
@@ -21,6 +22,7 @@ from ..db import SessionLocal
 from ..models import QueryImage, Search, SearchResult
 from . import captioner, matcher
 from .brightdata import BrightData, BrightDataError
+from .direct import Direct
 from .extract import ProductData, extract_product, looks_blocked
 from .pricing import apply_page_data, get_or_create_product, record_price
 from .serp_parse import Listing, extract_listings
@@ -28,9 +30,10 @@ from .stores import canonical_url, is_non_shop, is_product_url, shopping_site_fi
 
 log = logging.getLogger(__name__)
 LENS_TABS = ("exact_matches", "products", "visual_matches")
-CHANNEL_RANK = {"lens:exact_matches": 0, "lens:products": 1, "shopping": 2, "organic": 3,
-                "lens:visual_matches": 4}
+CHANNEL_RANK = {"lens:exact_matches": 0, "lens:products": 1, "store": 2, "shopping": 2,
+                "web": 3, "organic": 3, "lens:visual_matches": 4}
 MIN_SCORE = 0.30
+CLAUDE_CHECK = 24  # candidates Claude double-checks per search
 
 
 @dataclass
@@ -41,6 +44,7 @@ class Candidate:
     images: list[str] = field(default_factory=list)
     score: matcher.MatchScore | None = None
     page: ProductData | None = None
+    image_bytes: bytes | None = None
 
     @property
     def best_channel(self) -> str:
@@ -71,16 +75,14 @@ async def _lens(bd: BrightData, s: Settings, image_id: str, image: bytes, tab: s
         return []
 
 
-async def _text_search(bd: BrightData, queries: list[str]) -> list[Listing]:
-    jobs = []
-    for q in queries[:3]:
-        jobs.append(bd.google_shopping(q))
+async def _serp_text(bd: BrightData, queries: list[str]) -> list[Listing]:
+    jobs = [bd.google_shopping(q) for q in queries[:3]]
     if queries:
         jobs.append(bd.google_organic(f"{queries[0]} ({shopping_site_filter()})"))
     out: list[Listing] = []
     for i, res in enumerate(await asyncio.gather(*jobs, return_exceptions=True)):
         if isinstance(res, Exception):
-            log.warning("text search failed: %s", res)
+            log.warning("serp text search failed: %s", res)
             continue
         out += extract_listings(res, "organic" if i == len(jobs) - 1 else "shopping")
     return out
@@ -91,9 +93,8 @@ def _collect(listings: list[Listing], limit: int) -> list[Candidate]:
     for li in listings:
         if is_non_shop(li.url):
             continue
-        # Shopping results carry a price and point at a merchant page even when the URL
-        # shape is unfamiliar; Lens results must look like a product page.
-        if not is_product_url(li.url) and not (li.channel == "shopping" and li.price):
+        trusted = li.channel in ("store", "shopping") and li.price
+        if not is_product_url(li.url) and not trusted:
             continue
         canon = canonical_url(li.url)
         c = by_canon.get(canon)
@@ -102,73 +103,102 @@ def _collect(listings: list[Listing], limit: int) -> list[Candidate]:
         c.channels.add(li.channel)
         better = CHANNEL_RANK.get(li.channel, 9) < CHANNEL_RANK.get(c.listing.channel, 9)
         if li.image_url and li.image_url not in c.images:
-            # the more trustworthy channel's thumbnail is compared first
             c.images.insert(0, li.image_url) if better else c.images.append(li.image_url)
-        price, currency = c.listing.price, c.listing.currency
+        price, currency, extra = c.listing.price, c.listing.currency, c.listing.extra
         if better:
             c.listing = li
         if c.listing.price is None and (li.price or price):
             c.listing.price = li.price or price
             c.listing.currency = li.currency if li.price else currency
+            if not c.listing.extra.get("mrp") and extra.get("mrp"):
+                c.listing.extra["mrp"] = extra["mrp"]
     cands = sorted(by_canon.values(),
                    key=lambda c: (CHANNEL_RANK.get(c.best_channel, 9), store_tier(c.canon), c.listing.position))
     return cands[:limit]
 
 
 # --------------------------------------------------------------------------- verification
-async def _features_for(bd: BrightData, urls: list[str]) -> matcher.Features | None:
-    for u in urls[:2]:
-        data = await bd.fetch_image(u)
-        if data:
-            try:
-                return await asyncio.to_thread(matcher.features, data)
-            except Exception:
-                continue
+async def _image(direct: Direct, bd: BrightData | None, url: str) -> bytes | None:
+    data = await direct.fetch_image(url)
+    if data is None and bd is not None:
+        data = await bd.fetch_image(url)
+    return data
+
+
+async def _load(direct: Direct, bd: BrightData | None, c: Candidate) -> matcher.Features | None:
+    for u in c.images[:2]:
+        data = await _image(direct, bd, u)
+        if not data:
+            continue
+        try:
+            f = await asyncio.to_thread(matcher.features, data)
+            c.image_bytes = data
+            return f
+        except Exception:
+            continue
     return None
 
 
-async def _verify(bd: BrightData, s: Settings, qf: matcher.Features, cands: list[Candidate]) -> None:
-    feats = await asyncio.gather(*[_features_for(bd, c.images) for c in cands])
+async def _verify(direct: Direct, bd: BrightData | None, s: Settings, image: bytes,
+                  qf: matcher.Features, cands: list[Candidate]) -> bool:
+    feats = await asyncio.gather(*[_load(direct, bd, c) for c in cands])
     for c, f in zip(cands, feats):
         c.score = matcher.compare(qf, f, c.best_channel, s.exact_threshold, s.close_threshold)
 
+    if not captioner.enabled(s):
+        return False
+    pool = sorted([c for c in cands if c.image_bytes], key=lambda c: -c.score.score)[:CLAUDE_CHECK]
+    verdicts = await captioner.verify(image, [c.image_bytes for c in pool], s)
+    for i, c in enumerate(pool):
+        if i not in verdicts:
+            continue
+        same, conf = verdicts[i]
+        sig = dict(c.score.signals)
+        sig["claude"] = {"same": same, "confidence": round(conf, 2)}
+        score = c.score.score
+        if same and conf >= 0.6:
+            score = max(score, 0.80 + 0.18 * conf)
+        elif not same and conf >= 0.6:
+            score = min(score, s.close_threshold - 0.02)
+        elif same:
+            score = max(score, s.close_threshold + 0.02)
+        score = round(min(score, 0.99), 3)
+        c.score = matcher.MatchScore(score, matcher._level(score, s.exact_threshold, s.close_threshold), sig)
+    return bool(verdicts)
+
 
 # --------------------------------------------------------------------------- pricing
-async def scrape_product(bd: BrightData, url: str) -> ProductData | None:
+async def scrape_product(url: str, direct: Direct | None = None, bd: BrightData | None = None) -> ProductData | None:
+    own = direct is None
+    direct = direct or Direct()
     try:
-        html = await bd.fetch_html(url)
-    except BrightDataError as e:
-        log.info("page fetch failed %s: %s", url[:100], e)
-        return None
-    if looks_blocked(html) and "price" not in html.lower():
-        return None
-    try:
+        html = await direct.fetch_page(url)
+        if (html is None or looks_blocked(html)) and bd is not None and bd.s.brightdata_unlocker_zone:
+            try:
+                html = await bd.fetch_html(url)
+            except BrightDataError as e:
+                log.info("unlocker fetch failed %s: %s", url[:100], e)
+                html = None
+        if not html or (looks_blocked(html) and "price" not in html.lower()):
+            return None
         return await asyncio.to_thread(extract_product, html, url)
     except Exception as e:
-        log.warning("extract failed %s: %s", url[:100], e)
+        log.warning("product page failed %s: %s", url[:100], e)
         return None
+    finally:
+        if own:
+            await direct.aclose()
 
 
-async def _price(bd: BrightData, s: Settings, qf: matcher.Features, cands: list[Candidate]) -> None:
-    if not s.brightdata_unlocker_zone:
-        return  # listing prices from Lens / Shopping are used instead
-    pages = await asyncio.gather(*[scrape_product(bd, c.listing.url) for c in cands])
-    rescore = []
+async def _price(direct: Direct, bd: BrightData | None, cands: list[Candidate]) -> None:
+    pages = await asyncio.gather(*[scrape_product(c.listing.url, direct, bd) for c in cands])
     for c, page in zip(cands, pages):
         c.page = page
-        # If we couldn't verify from the SERP thumbnail, use the product page's own photos.
-        if page and page.images and c.score and not c.score.signals.get("verified"):
-            rescore.append(c)
-    feats = await asyncio.gather(*[_features_for(bd, c.page.images) for c in rescore])
-    for c, f in zip(rescore, feats):
-        if f is not None:
-            c.score = matcher.compare(qf, f, c.best_channel, s.exact_threshold, s.close_threshold)
 
 
 # --------------------------------------------------------------------------- persist
 def _persist(search_id: str, cands: list[Candidate]) -> dict:
-    kept = 0
-    priced = 0
+    kept = priced = 0
     with SessionLocal() as db:
         db.query(SearchResult).filter(SearchResult.search_id == search_id).delete()
         ranked = sorted([c for c in cands if c.score and c.score.score >= MIN_SCORE],
@@ -180,12 +210,17 @@ def _persist(search_id: str, cands: list[Candidate]) -> dict:
                 apply_page_data(p, c.page)
             if not p.title:
                 p.title = li.title
+            if not p.image_url and c.images:
+                p.image_url = c.images[0]
+            if li.in_stock is not None and p.in_stock is None:
+                p.in_stock = li.in_stock
             if c.page and c.page.price:
                 record_price(db, p, c.page.price, mrp=c.page.mrp, in_stock=c.page.in_stock, source="page")
                 priced += 1
-            elif li.price and (li.currency in (None, "INR")):
-                record_price(db, p, li.price, in_stock=li.in_stock,
-                             source="shopping" if li.channel == "shopping" else "lens")
+            elif li.price and li.currency in (None, "INR"):
+                record_price(db, p, li.price, mrp=li.extra.get("mrp"), in_stock=li.in_stock,
+                             source="store" if li.channel == "store" else ("shopping" if li.channel == "shopping" else "lens"))
+                p.scrape_ok = li.channel == "store"
                 priced += 1
             db.add(SearchResult(search_id=search_id, product_id=p.id, rank=rank,
                                 score=c.score.score, match_level=c.score.level,
@@ -197,10 +232,12 @@ def _persist(search_id: str, cands: list[Candidate]) -> dict:
 
 # --------------------------------------------------------------------------- entry
 async def run_search(search_id: str, settings: Settings | None = None,
-                     bd: BrightData | None = None) -> None:
+                     bd: BrightData | None = None, direct: Direct | None = None) -> None:
     s = settings or get_settings()
-    own_client = bd is None
-    bd = bd or BrightData(s)
+    own_bd = bd is None and s.brightdata_ready
+    bd = bd or (BrightData(s) if s.brightdata_ready else None)
+    own_direct = direct is None
+    direct = direct or Direct()
     t0 = time.monotonic()
     try:
         with SessionLocal() as db:
@@ -208,43 +245,54 @@ async def run_search(search_id: str, settings: Settings | None = None,
             img = db.get(QueryImage, search.image_id)
             image, image_id = img.data, img.id
 
-        if not s.brightdata_ready:
-            raise RuntimeError("Bright Data is not configured (BRIGHTDATA_API_KEY / BRIGHTDATA_SERP_ZONE).")
+        if bd is None and not captioner.enabled(s):
+            raise RuntimeError("No search method is configured. Set LLM_PROVIDER=bedrock (recommended) "
+                               "or Bright Data credentials.")
 
-        _update(search_id, status="searching", stage="Reading the photo and asking Google Lens", progress=0.08)
+        _update(search_id, status="searching", stage="Reading the photo", progress=0.08)
         qf_task = asyncio.create_task(asyncio.to_thread(matcher.features, image))
         caption_task = asyncio.create_task(captioner.describe(image, s))
-        lens = await asyncio.gather(*[_lens(bd, s, image_id, image, t) for t in LENS_TABS])
-        listings = [li for group in lens for li in group]
+        lens_task = asyncio.gather(*[_lens(bd, s, image_id, image, t) for t in LENS_TABS]) if bd else None
 
         attrs = await caption_task
-        if attrs:
-            _update(search_id, attributes=attrs, stage="Searching Indian stores by description", progress=0.3)
-            listings += await _text_search(bd, attrs.get("queries") or [])
+        listings: list[Listing] = []
+        if attrs and attrs.get("queries"):
+            _update(search_id, attributes=attrs, progress=0.2,
+                    stage="Searching Amazon, Flipkart, Tata CLiQ, Myntra, AJIO and brand stores")
+            jobs = [direct.search_all(attrs["queries"])]
+            if bd:
+                jobs.append(_serp_text(bd, attrs["queries"]))
+            for res in await asyncio.gather(*jobs, return_exceptions=True):
+                if isinstance(res, Exception):
+                    log.warning("search source failed: %s", res)
+                else:
+                    listings += res
+        elif bd is None:
+            raise RuntimeError("Couldn't read the photo. Try a clearer picture where the garment fills the frame.")
+        if lens_task:
+            listings += [li for group in await lens_task for li in group]
 
         cands = _collect(listings, s.max_candidates)
         if not cands:
             _update(search_id, status="done", stage="No shops found for this photo", progress=1.0,
                     finished_at=datetime.now(timezone.utc),
                     stats={"listings": len(listings), "candidates": 0, "results": 0,
-                           "seconds": round(time.monotonic() - t0, 1)})
+                           "seconds": round(time.monotonic() - t0, 1), "errors": direct.errors})
             return
 
         _update(search_id, status="verifying", progress=0.45,
-                stage=f"Comparing {len(cands)} listings against your photo")
+                stage=f"Comparing {len(cands)} listings with your photo")
         qf = await qf_task
-        await _verify(bd, s, qf, cands)
+        checked = await _verify(direct, bd, s, image, qf, cands)
 
         best = sorted(cands, key=lambda c: -(c.score.score if c.score else 0))
-        to_price = [c for c in best if c.score and c.score.score >= MIN_SCORE][: s.max_product_pages]
-        _update(search_id, status="pricing", progress=0.7,
-                stage=f"Fetching live prices from {len(to_price)} product pages"
-                if s.brightdata_unlocker_zone else "Collecting prices")
-        await _price(bd, s, qf, to_price)
+        to_price = [c for c in best if c.score and c.score.level in ("exact", "close")][: s.max_product_pages]
+        _update(search_id, status="pricing", progress=0.75, stage="Checking sizes, stock and prices")
+        await _price(direct, bd, to_price)
 
         stats = _persist(search_id, cands)
         stats.update(listings=len(listings), candidates=len(cands), seconds=round(time.monotonic() - t0, 1),
-                     captioned=bool(attrs))
+                     captioned=bool(attrs), claude_checked=checked, errors=direct.errors)
         _update(search_id, status="done", stage="Done", progress=1.0, stats=stats,
                 finished_at=datetime.now(timezone.utc))
     except Exception as e:
@@ -252,5 +300,7 @@ async def run_search(search_id: str, settings: Settings | None = None,
         _update(search_id, status="failed", stage="Failed", error=str(e)[:500],
                 finished_at=datetime.now(timezone.utc))
     finally:
-        if own_client:
+        if own_bd and bd:
             await bd.aclose()
+        if own_direct:
+            await direct.aclose()

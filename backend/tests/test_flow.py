@@ -149,7 +149,7 @@ def test_refresh_job_records_new_price_and_alert(monkeypatch):
         db.commit()
         pid = p.id
 
-    async def fake_scrape(bd, url):
+    async def fake_scrape(url, direct=None, bd=None):
         from app.services.extract import ProductData
         return ProductData(title="Pink kurta", price=1450, mrp=2999, in_stock=True)
 

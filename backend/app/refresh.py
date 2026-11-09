@@ -17,6 +17,7 @@ from .config import get_settings
 from .db import SessionLocal, init_db
 from .models import Product, WatchItem
 from .services.brightdata import BrightData
+from .services.direct import Direct
 from .services.pipeline import scrape_product
 from .services.pricing import apply_page_data, record_price
 
@@ -46,12 +47,13 @@ async def refresh(limit: int | None = None, product_ids: list[str] | None = None
             due = [(p.id, p.url) for p in db.scalars(select(Product).where(Product.id.in_(product_ids)))]
     else:
         due = _due_products(limit)
-    bd = BrightData(s)
+    bd = BrightData(s) if s.brightdata_unlocker_zone and s.brightdata_api_key else None
+    direct = Direct()
     ok = failed = 0
     try:
         for i in range(0, len(due), 20):
             batch = due[i:i + 20]
-            pages = await asyncio.gather(*[scrape_product(bd, url) for _, url in batch])
+            pages = await asyncio.gather(*[scrape_product(url, direct, bd) for _, url in batch])
             with SessionLocal() as db:
                 for (pid, _), page in zip(batch, pages):
                     p = db.get(Product, pid)
@@ -64,7 +66,9 @@ async def refresh(limit: int | None = None, product_ids: list[str] | None = None
                         failed += 1
                 db.commit()
     finally:
-        await bd.aclose()
+        await direct.aclose()
+        if bd:
+            await bd.aclose()
     alerts = send_alerts()
     return {"checked": len(due), "ok": ok, "failed": failed, "alerts": alerts}
 

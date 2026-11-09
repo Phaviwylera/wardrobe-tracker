@@ -11,3 +11,4 @@ opencv-python-headless>=4.10
 numpy>=2.0
 selectolax>=0.3.27
 anthropic[bedrock]>=0.40
+boto3>=1.35

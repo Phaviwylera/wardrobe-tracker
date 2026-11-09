@@ -18,7 +18,7 @@ from . import refresh as refresh_job
 from .config import get_settings
 from .db import get_db, init_db
 from .models import PricePoint, Product, QueryImage, Search, SearchResult, WatchItem
-from .services import matcher
+from .services import captioner, matcher
 from .services.brightdata import BrightData
 from .services.pipeline import run_search, scrape_product
 from .services.pricing import apply_page_data, get_or_create_product, price_stats, record_price
@@ -175,6 +175,8 @@ def health() -> dict:
     return {
         "ok": True,
         "brightdata": settings.brightdata_ready,
+        "search": "direct+claude" if captioner.enabled(settings) else ("brightdata" if settings.brightdata_ready else "not configured"),
+        "model": settings.bedrock_model if settings.llm_provider == "bedrock" else settings.llm_provider,
         # Shape only (never the value), to spot mis-pasted keys.
         "key_shape": _key_shape(settings.brightdata_api_key),
         "serp_zone": settings.brightdata_serp_zone or None,
@@ -284,6 +286,15 @@ def get_product(product_id: str, x_client_id: str | None = Header(default=None),
     }
 
 
+async def _scrape(url: str):
+    bd = BrightData(settings) if settings.brightdata_unlocker_zone and settings.brightdata_api_key else None
+    try:
+        return await scrape_product(url, bd=bd)
+    finally:
+        if bd:
+            await bd.aclose()
+
+
 @app.post("/api/products/{product_id}/refresh")
 async def refresh_product(product_id: str, db: Session = Depends(get_db)) -> dict:
     p = db.get(Product, product_id)
@@ -292,11 +303,7 @@ async def refresh_product(product_id: str, db: Session = Depends(get_db)) -> dic
     last = p.last_checked if p.last_checked is None or p.last_checked.tzinfo else p.last_checked.replace(tzinfo=timezone.utc)
     if last and datetime.now(timezone.utc) - last < timedelta(minutes=10):
         return {"refreshed": False, "reason": "checked in the last 10 minutes"}
-    bd = BrightData(settings)
-    try:
-        page = await scrape_product(bd, p.url)
-    finally:
-        await bd.aclose()
+    page = await _scrape(p.url)
     p.last_checked = datetime.now(timezone.utc)
     if page and page.price:
         apply_page_data(p, page)
@@ -313,11 +320,7 @@ async def track_url(body: TrackIn, cid: str = Depends(_client), db: Session = De
     if not is_product_url(url) and store_for(url).key != "other":
         raise HTTPException(422, "That link looks like a listing page, not a single product.")
     _rate_limit(cid)
-    bd = BrightData(settings)
-    try:
-        page = await scrape_product(bd, url)
-    finally:
-        await bd.aclose()
+    page = await _scrape(url)
     if not page or not page.price:
         raise HTTPException(502, "Couldn't read a price from that page right now.")
     p = get_or_create_product(db, url, title=page.title, image_url=page.image_url)
