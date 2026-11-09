@@ -22,8 +22,11 @@ DESCRIBE = """You are a fashion merchandiser for Indian e-commerce (Myntra, AJIO
 Look at the clothing in the photo. If several garments are visible, describe the most prominent one
 (for a set, describe the set). Reply with ONLY a JSON object:
 {
-  "garment": "the product type as Myntra names it, e.g. shirt style top, regular top, crop top, tunic,
-              kurta, anarkali kurta set, co-ords, A-line dress, bodycon dress, saree, palazzo trousers",
+  "garment": "the product type as Myntra names it. Look carefully at collar, placket and buttons before
+              choosing: 'shirt style top' ONLY if it has a shirt collar and a button placket; otherwise
+              use the type that fits, e.g. top, regular top, crop top, peplum top, wrap top, blouson top,
+              tie-up neck top, tunic, kurta, kurti, anarkali kurta set, co-ords, A-line dress,
+              bodycon dress, maxi dress, saree, palazzo trousers",
   "gender": "women | men | girls | boys | unisex",
   "colours": ["primary colour", "secondary colour"],
   "pattern": "solid / floral print / ikat / bandhani / block print / embroidered / ...",
@@ -36,10 +39,11 @@ Look at the clothing in the photo. If several garments are visible, describe the
               colours loosely, so add variants with the neighbouring colour names they use (for example
               red / maroon / pink / rust, blue / navy / teal). If you cannot tell printed from embroidered,
               include both. End with one broad query (colour + garment)."],
-  "store_queries": ["3 queries written exactly like Myntra / AJIO product titles, without a brand:
-              'Women <Colour> <Pattern or work> <Product type>', e.g. 'Women Green Solid Shirt Style Top',
-              'Green Solid Shirt Style Top', 'Women Maroon Embroidered Anarkali Kurta'. Use Myntra's product
-              type words (Shirt Style Top, Regular Top, Kurta, A-Line Dress, Co-Ords, ...)."]
+  "store_queries": ["3 queries written exactly like Myntra / AJIO product titles, without a brand.
+              Myntra titles come in two styles, so give both: the feature style that names the standout
+              neckline or sleeve, e.g. 'Tie-Up Neck Bell Sleeve Top', 'Keyhole Neck Puff Sleeve Top',
+              'Mandarin Collar Kurta', and the plain style 'Women <Colour> <Pattern> <Product type>', e.g.
+              'Women Green Solid Shirt Style Top', 'Women Maroon Embroidered Anarkali Kurta'."]
 }"""
 
 VERIFY = """Image 1 is a photo a shopper took or saved. Image 2 is a product listing from a store.

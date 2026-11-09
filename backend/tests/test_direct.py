@@ -156,3 +156,10 @@ def test_tatacliq_pdp():
     assert (li.price, li.extra["mrp"], li.in_stock, li.title) == (4121, 5495, True, "Biba Pink Anarkali")
     assert li.extra["sizes"] == [{"label": "M", "available": True}, {"label": "XL", "available": False}]
     assert li.image_url == "https://img.tatacliq.com/a.jpg"
+
+
+def test_savana_from_bing():
+    page = '<a m="' + json.dumps({"purl": "https://www.savana.com/details/mint-tie-neck-top-12345678",
+                                  "murl": "https://img101.savana.com/a.jpg", "t": "Mint Tie Neck Top - Savana"}).replace('"', "&quot;") + '"></a>'
+    g = parse_bing_images(page, "savana.com")
+    assert g and g[0].title == "Mint Tie Neck Top" and g[0].url.startswith("https://www.savana.com/details/")

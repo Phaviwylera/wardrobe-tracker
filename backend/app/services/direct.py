@@ -45,7 +45,9 @@ SHOPIFY_STORES = [
 SPA_STORES = ("tatacliq.com",)
 # Stores that refuse server requests; found through Bing Images instead.
 BLOCKED_STORES = ["myntra.com", "ajio.com", "nykaafashion.com", "meesho.com"]
-STORE_WORD = {"myntra.com": "myntra", "ajio.com": "ajio", "nykaafashion.com": "nykaa fashion", "meesho.com": "meesho"}
+# Single-page-app stores with no public search page; also found through Bing Images.
+INDEXED_STORES = ["savana.com"]
+STORE_WORD = {"myntra.com": "myntra", "ajio.com": "ajio", "nykaafashion.com": "nykaa fashion", "meesho.com": "meesho", "savana.com": "savana"}
 DIRECT_BLOCKED = tuple(BLOCKED_STORES)
 
 
@@ -167,7 +169,7 @@ class Direct:
             jobs += [self.shopify(h, q) for h in SHOPIFY_STORES]
         # Myntra & AJIO are found through Bing; their own title wording finds the exact listing best.
         bing_qs = store_queries[:3] + queries[:1]
-        for site in BLOCKED_STORES:
+        for site in BLOCKED_STORES + INDEXED_STORES:
             for q in (bing_qs if site in ("myntra.com", "ajio.com") else bing_qs[:2]):
                 jobs.append(self.bing_images(q, site))
         if image_url:
@@ -356,7 +358,7 @@ def parse_bing_images(page: str, site: str) -> list[Listing]:
             continue
         seen.add(purl)
         title = htmlmod.unescape(d.get("t") or "").replace("", "").replace("", "")
-        title = re.sub(r"\s*[|\-–]\s*(Myntra|AJIO|Nykaa Fashion|Meesho).*$", "", title, flags=re.I)
+        title = re.sub(r"\s*[|\-–]\s*(Myntra|AJIO|Nykaa Fashion|Meesho|Savana).*$", "", title, flags=re.I)
         turl = d.get("turl")
         out.append(Listing(url=purl, title=title[:300], image_url=murl or turl,
                            price=None, source=site, channel="web", position=len(out) + 1,
