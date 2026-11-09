@@ -162,7 +162,12 @@ async def _load(direct: Direct, bd: BrightData | None, c: Candidate) -> matcher.
 
 async def _verify(direct: Direct, bd: BrightData | None, s: Settings, image: bytes,
                   qf: matcher.Features, cands: list[Candidate]) -> bool:
-    feats = await asyncio.gather(*[_load(direct, bd, c) for c in cands])
+    async def load(c: Candidate):
+        try:
+            return await asyncio.wait_for(_load(direct, bd, c), 20)
+        except asyncio.TimeoutError:
+            return None
+    feats = await asyncio.gather(*[load(c) for c in cands])
     for c, f in zip(cands, feats):
         c.score = matcher.compare(qf, f, c.best_channel, s.exact_threshold, s.close_threshold)
         if _identical(c):

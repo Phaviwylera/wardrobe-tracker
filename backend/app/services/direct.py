@@ -54,10 +54,15 @@ class Direct:
         self.client = httpx.AsyncClient(headers=HEADERS, timeout=timeout, follow_redirects=True,
                                         http2=False)
         self._host_sem: dict[str, asyncio.Semaphore] = defaultdict(lambda: asyncio.Semaphore(per_host))
+        # Images come from CDNs: more parallelism, short timeout so one slow host can't stall a search.
+        self.img_client = httpx.AsyncClient(headers=HEADERS, timeout=httpx.Timeout(10.0, connect=5.0),
+                                            follow_redirects=True)
+        self._img_sem: dict[str, asyncio.Semaphore] = defaultdict(lambda: asyncio.Semaphore(8))
         self.errors: dict[str, str] = {}
 
     async def aclose(self) -> None:
         await self.client.aclose()
+        await self.img_client.aclose()
 
     async def get(self, url: str, **headers) -> httpx.Response | None:
         host = urlsplit(url).hostname or ""
@@ -186,12 +191,17 @@ class Direct:
         return r.text
 
     async def fetch_image(self, url: str) -> bytes | None:
+        host = urlsplit(url).hostname or ""
+        if not host:
+            return None
         try:
-            r = await self.get(url, Accept="image/avif,image/webp,image/*,*/*;q=0.8",
-                               Referer=f"https://{urlsplit(url).hostname}/")
+            async with self._img_sem[host]:
+                r = await asyncio.wait_for(self.img_client.get(
+                    url, headers={"Accept": "image/avif,image/webp,image/*,*/*;q=0.8",
+                                  "Referer": f"https://{host}/"}), 12)
         except Exception:
             return None
-        if r is not None and r.status_code == 200 and r.headers.get("content-type", "").startswith("image"):
+        if r.status_code == 200 and r.headers.get("content-type", "").startswith("image") and len(r.content) > 1000:
             return r.content
         return None
 
