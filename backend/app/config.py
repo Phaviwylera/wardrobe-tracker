@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     # --- Lens (reverse image search); keys may also live in AWS SSM Parameter Store /styletrail/ ---
     serpapi_key: str = ""                 # SerpApi Google Lens
     serpapi_lens_types: str = "exact_matches,visual_matches"
+    serpapi_shopping_queries: int = 2     # Google Shopping text searches per photo (Myntra/AJIO/Nykaa feeds)
+    serpapi_resolve_max: int = 3          # matched Shopping products whose store link is looked up
     google_vision_key: str = ""           # Google Cloud Vision WEB_DETECTION
     country: str = "in"
     language: str = "en"

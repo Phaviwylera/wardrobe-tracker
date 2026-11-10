@@ -13,6 +13,9 @@ import asyncio
 import base64
 import logging
 from collections import OrderedDict
+from urllib.parse import urlsplit
+
+import httpx
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -58,7 +61,8 @@ class Tile(BaseModel):
     title: str | None = Field(default=None, max_length=400)
     price: str | float | None = None
     mrp: str | float | None = None
-    image_b64: str = Field(max_length=900_000)
+    image_b64: str | None = Field(default=None, max_length=900_000)
+    image_url: str | None = Field(default=None, max_length=2000)  # from the phone Finder: we fetch the photo
 
 
 class MatchIn(BaseModel):
@@ -66,13 +70,38 @@ class MatchIn(BaseModel):
     tiles: list[Tile] = Field(max_length=40)
 
 
-def _score_tiles(qf: matcher.Features, tiles: list[Tile]) -> list[tuple[Tile, bytes, matcher.MatchScore, bool]]:
+# Image CDNs of the stores the Finder runs on. Only these are fetched, and only the photo itself.
+IMAGE_HOSTS = ("assets.myntassets.com", "assets.ajio.com", "images.meesho.com", "images-static.nykaa.com",
+               "adn-static1.nykaa.com")
+
+
+async def _tile_images(tiles: list[Tile]) -> dict[int, bytes]:
+    out: dict[int, bytes] = {}
+    need = [(i, t.image_url) for i, t in enumerate(tiles) if not t.image_b64 and t.image_url
+            and urlsplit(t.image_url).scheme == "https" and (urlsplit(t.image_url).hostname or "") in IMAGE_HOSTS]
+    if not need:
+        return out
+    async with httpx.AsyncClient(timeout=12, follow_redirects=False, headers={"User-Agent": "Mozilla/5.0 StyleTrail"}) as c:
+        async def one(i: int, u: str) -> None:
+            try:
+                r = await c.get(u)
+                if r.status_code == 200 and r.headers.get("content-type", "").startswith("image/") and len(r.content) < 3_000_000:
+                    out[i] = r.content
+            except httpx.HTTPError:
+                pass
+        await asyncio.gather(*[one(i, u) for i, u in need])
+    return out
+
+
+def _score_tiles(qf: matcher.Features, tiles: list[Tile], fetched: dict[int, bytes]) -> list[tuple[Tile, bytes, matcher.MatchScore, bool]]:
     out = []
-    for t in tiles:
+    for i, t in enumerate(tiles):
         if not _store_page(t.url):
             continue
         try:
-            raw = base64.b64decode(t.image_b64.split(",", 1)[-1])
+            raw = fetched[i] if i in fetched else base64.b64decode((t.image_b64 or "").split(",", 1)[-1])
+            if not raw:
+                continue
             f = matcher.features(raw)
         except Exception:
             continue
@@ -87,7 +116,8 @@ def _score_tiles(qf: matcher.Features, tiles: list[Tile]) -> list[tuple[Tile, by
 @router.post("/match")
 async def match(body: MatchIn, db: Session = Depends(get_db)) -> dict:
     qf = await asyncio.to_thread(_query_features, db, body.search_id)
-    scored = await asyncio.to_thread(_score_tiles, qf, body.tiles)
+    fetched = await _tile_images(body.tiles)
+    scored = await asyncio.to_thread(_score_tiles, qf, body.tiles, fetched)
     found = []
     for t, raw, sc, same in scored:
         level = "exact" if same else sc.level
@@ -148,3 +178,48 @@ def observe(body: ObserveIn, db: Session = Depends(get_db)) -> dict:
     pt = record_price(db, p, price, mrp=mrp, in_stock=stock, source="extension")
     db.commit()
     return {"product_id": p.id, "price": price, "mrp": mrp, "in_stock": stock, "recorded": pt is not None}
+
+
+class LinkIn(BaseModel):
+    search_id: str = Field(max_length=64)
+    url: str = Field(max_length=2000)
+
+
+@router.post("/add-link")
+async def add_link(body: LinkIn, db: Session = Depends(get_db)) -> dict:
+    """The shopper found the piece themselves (e.g. shared from the Myntra app) and pastes its link."""
+    url = body.url.strip()
+    m = __import__("re").search(r"https?://\S+", url)  # shared text often has words around the link
+    url = m.group(0).rstrip(").,") if m else url
+    if not db.get(Search, body.search_id):
+        raise HTTPException(404, "Search not found")
+    if not _store_page(url):
+        raise HTTPException(400, "That isn't a product link from a store we track. Copy the link of the product page itself.")
+    p = get_or_create_product(db, url)
+    r = db.scalar(select(SearchResult).where(SearchResult.search_id == body.search_id, SearchResult.product_id == p.id))
+    signals = {"user_confirmed": True, "identical_photo": True}
+    if r is None:
+        db.add(SearchResult(search_id=body.search_id, product_id=p.id, rank=-2, score=1.0, match_level="exact",
+                            signals=signals, sources=["you"]))
+    else:
+        r.rank, r.score, r.match_level, r.signals = -2, 1.0, "exact", {**(r.signals or {}), **signals}
+        r.sources = sorted(set(r.sources or []) | {"you"})
+    db.commit()
+    priced = False
+    if not p.title or not p.prices:
+        from .main import _scrape  # stores that serve us directly; blocked stores fill in via Finder/extension visits
+        page = await _scrape(p.url)
+        if page and page.price:
+            apply_page_data(p, page)
+            record_price(db, p, page.price, mrp=page.mrp, in_stock=page.in_stock, source="page")
+            priced = True
+        if not p.title:
+            p.title = _title_from_url(p.url)
+        db.commit()
+    return {"product_id": p.id, "priced": priced}
+
+
+def _title_from_url(url: str) -> str:
+    parts = [x for x in urlsplit(url).path.split("/") if x and not x.isdigit() and x not in ("buy", "p", "dp")]
+    slug = max(parts, key=len) if parts else ""
+    return slug.replace("-", " ").replace("+", " ").strip().title()[:200] or "Product"

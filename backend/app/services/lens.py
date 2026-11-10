@@ -21,7 +21,8 @@ import time
 import httpx
 
 from ..config import Settings
-from .serp_parse import Listing, extract_listings
+from .serp_parse import Listing, extract_listings, parse_price
+from .stores import STORES, Store, is_product_url, store_for
 
 log = logging.getLogger(__name__)
 
@@ -121,6 +122,116 @@ async def vision_web(client: httpx.AsyncClient, key: str, image: bytes) -> list[
         log.warning("vision web detection: %s", str(err.get("message", err))[:200])
         return []
     return parse_vision(doc)
+
+
+# --------------------------------------------------------------------------- Google Shopping (store feeds)
+# Stores such as Myntra, AJIO and Nykaa Fashion publish their catalogue (photo, title, price) to Google
+# Shopping themselves. Results carry no store link, so each gets a placeholder URL on the store's own
+# domain; the few that match the photo are resolved to the real product link afterwards (resolve()).
+GSHOP = "/gshop/p"
+
+
+def _store_by_source(source: str) -> Store | None:
+    n = re.sub(r"\.(com|in|co\.in|org)$", "", (source or "").strip().lower())
+    n = re.sub(r"[^a-z0-9]", "", n)
+    if not n:
+        return None
+    for st in STORES:
+        names = {re.sub(r"[^a-z0-9]", "", st.name.lower()), st.key, st.domains[0].split(".")[0]}
+        if n in names:
+            return st
+    return None
+
+
+def is_placeholder(url: str) -> bool:
+    return GSHOP in url
+
+
+def parse_shopping(doc: dict) -> list[Listing]:
+    out: list[Listing] = []
+    for i, it in enumerate(doc.get("shopping_results") or []):
+        st = _store_by_source(it.get("source") or "")
+        pid, token = it.get("product_id"), it.get("immersive_product_page_token")
+        if not st or not pid or not token:
+            continue
+        price, cur = parse_price(it.get("extracted_price") or it.get("price"))
+        if not price:
+            continue
+        mrp, _ = parse_price(it.get("extracted_old_price") or it.get("old_price"))
+        title = re.sub(r"['\"()]*\s*by\s+" + re.escape(st.name) + r"['\"]*\s*$", "", it.get("title") or "", flags=re.I)
+        title = re.sub(r"['\"]+$", "", title).strip()
+        out.append(Listing(url=f"https://www.{st.domains[0]}{GSHOP}{pid}", title=title[:300], price=price,
+                           currency="INR" if (it.get("price") or "").strip().startswith("₹") else (cur or "INR"),
+                           image_url=it.get("thumbnail"), source=st.name, channel="shopping", position=i + 1,
+                           extra={"mrp": mrp, "immersive": token, "store_key": st.key}))
+    return out
+
+
+async def shopping_search(s: Settings, queries: list[str]) -> list[Listing]:
+    k = await keys(s)
+    queries = [q for q in queries if q][: s.serpapi_shopping_queries]
+    if not k["serpapi"] or not queries:
+        return []
+    out: list[Listing] = []
+    async with httpx.AsyncClient() as client:
+        async def one(q: str) -> list[Listing]:
+            try:
+                r = await client.get("https://serpapi.com/search.json", params={
+                    "engine": "google_shopping", "q": q, "gl": s.country, "hl": s.language,
+                    "location": "India", "api_key": k["serpapi"]}, timeout=60)
+                doc = r.json()
+            except (httpx.HTTPError, ValueError) as e:
+                log.warning("serpapi shopping failed: %s", type(e).__name__)
+                return []
+            if doc.get("error"):
+                log.warning("serpapi shopping: %s", str(doc["error"])[:200])
+                return []
+            return parse_shopping(doc)
+        for res in await asyncio.gather(*[one(q) for q in queries]):
+            out += res
+    return out
+
+
+def parse_immersive(doc: dict) -> list[dict]:
+    """Stores selling one Google Shopping product: [{url, price, mrp, store}] for product pages of known stores."""
+    out: list[dict] = []
+    seen: set[str] = set()
+    stack = [doc.get("product_results") or doc]
+    while stack:
+        cur = stack.pop()
+        if isinstance(cur, list):
+            stack.extend(cur)
+        elif isinstance(cur, dict):
+            link = cur.get("link")
+            if isinstance(link, str) and link.startswith("http") and cur.get("name"):
+                link = link.split("?srsltid=")[0].split("&srsltid=")[0]
+                st = store_for(link)
+                if st.key != "other" and is_product_url(link) and link not in seen:
+                    seen.add(link)
+                    price, _ = parse_price(cur.get("extracted_price") or cur.get("price"))
+                    mrp, _ = parse_price(cur.get("extracted_original_price") or cur.get("original_price"))
+                    out.append({"url": link, "price": price, "mrp": mrp, "store": st.key})
+            stack.extend(v for v in cur.values() if isinstance(v, (dict, list)))
+    return out
+
+
+async def resolve(s: Settings, token: str) -> list[dict]:
+    k = await keys(s)
+    if not k["serpapi"]:
+        return []
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get("https://serpapi.com/search.json", params={
+                "engine": "google_immersive_product", "page_token": token, "gl": s.country, "hl": s.language,
+                "api_key": k["serpapi"]}, timeout=60)
+            doc = r.json()
+    except (httpx.HTTPError, ValueError) as e:
+        log.warning("serpapi product lookup failed: %s", type(e).__name__)
+        return []
+    if doc.get("error"):
+        log.warning("serpapi product lookup: %s", str(doc["error"])[:200])
+        return []
+    return parse_immersive(doc)
 
 
 async def search(s: Settings, image: bytes, image_url: str | None) -> list[Listing]:

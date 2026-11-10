@@ -213,3 +213,79 @@ def test_extension_match_and_observe():
     o = c.post("/api/ext/observe", json={"url": "https://www.myntra.com/tops/atelier+rebel/x/47750458/buy", "state_script": state}).json()
     assert o["price"] == 1199 and o["in_stock"] is True and o["product_id"] == res[0]["product"]["id"]
     assert c.post("/api/ext/observe", json={"url": "https://example.com/x", "price": 1}).status_code == 400
+
+
+def test_finder_image_urls_and_add_link(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app import extension_api
+    from app.db import SessionLocal, init_db
+    from app.main import app
+    from app.models import QueryImage, Search
+
+    init_db()
+    with SessionLocal() as db:
+        qi = QueryImage(data=_bytes(_garment()), width=480, height=640)
+        db.add(qi); db.flush()
+        s = Search(image_id=qi.id, client_id="client-ext2", status="done")
+        db.add(s); db.commit()
+        sid = s.id
+    pics = {"https://assets.myntassets.com/a/47750458/x.jpg": _bytes(_garment().resize((240, 320)))}
+
+    async def fake_images(tiles):
+        return {i: pics[t.image_url] for i, t in enumerate(tiles) if t.image_url in pics}
+    monkeypatch.setattr(extension_api, "_tile_images", fake_images)
+    c = TestClient(app)
+    r = c.post("/api/ext/match", json={"search_id": sid, "tiles": [
+        {"url": "https://www.myntra.com/tops/a/b/47750458/buy", "image_url": "https://assets.myntassets.com/a/47750458/x.jpg"},
+        {"url": "https://www.myntra.com/tops/a/b/11111111/buy", "image_url": "https://evil.example/x.jpg"}]}).json()
+    assert [m["level"] for m in r["matches"]] == ["exact"]
+
+    async def no_scrape(url):
+        return None
+    monkeypatch.setattr("app.main._scrape", no_scrape)
+    shared = "Check out this Atelier Rebel Top on Myntra! https://www.myntra.com/tops/atelier+rebel/atelier-rebel-tie-up-neck-bell-sleeve-top/47750458/buy"
+    r = c.post("/api/ext/add-link", json={"search_id": sid, "url": shared})
+    assert r.status_code == 200, r.text
+    res = c.get(f"/api/searches/{sid}").json()["results"]
+    assert "47750458" in res[0]["product"]["url"] and res[0]["sources"] == ["extension", "you"] and res[0]["match_level"] == "exact"
+    assert c.post("/api/ext/add-link", json={"search_id": sid, "url": "https://www.myntra.com/women-tops"}).status_code == 400
+
+
+def test_google_shopping_feed_and_resolve():
+    import asyncio
+
+    from app.config import Settings
+    from app.services import lens, matcher
+    from app.services.pipeline import Candidate, _collect, _resolve_shopping
+    doc = {"shopping_results": [
+        {"position": 1, "title": "ATELIER REBEL Tie-Up Neck Bell Sleeve Top'\"'by Myntra", "source": "Myntra", "price": "₹1,299",
+         "extracted_price": 1299, "extracted_old_price": 2599, "product_id": "111", "immersive_product_page_token": "tokA",
+         "thumbnail": "https://encrypted-tbn0.gstatic.com/a"},
+        {"position": 2, "title": "Other Top by AJIO", "source": "AJIO.com", "price": "₹700", "extracted_price": 700,
+         "product_id": "222", "immersive_product_page_token": "tokB", "thumbnail": "https://encrypted-tbn0.gstatic.com/b"},
+        {"position": 3, "title": "x", "source": "ubuy.co.in", "price": "₹1", "extracted_price": 1, "product_id": "3",
+         "immersive_product_page_token": "t"}]}
+    ls = lens.parse_shopping(doc)
+    assert [l.source for l in ls] == ["Myntra", "AJIO"] and ls[0].title == "ATELIER REBEL Tie-Up Neck Bell Sleeve Top"
+    assert ls[0].url == "https://www.myntra.com/gshop/p111" and ls[0].extra["mrp"] == 2599
+    cands = _collect(ls, 20)
+    assert len(cands) == 2
+    cands[0].score = matcher.MatchScore(0.95, "exact", {}); cands[1].score = matcher.MatchScore(0.4, "similar", {})
+    imm = {"product_results": {"stores": [
+        {"name": "Myntra", "link": "https://www.myntra.com/tops/atelier+rebel/x/47750458/buy?srsltid=abc", "extracted_price": 1199},
+        {"name": "Nykaa Fashion", "link": "https://www.nykaafashion.com/x/p/18119651", "extracted_price": 1250},
+        {"name": "Blog", "link": "https://example.com/post"}]}}
+    assert [d["store"] for d in lens.parse_immersive(imm)] in (["myntra", "nykaafashion"], ["nykaafashion", "myntra"])
+
+    async def fake(s, token):
+        assert token == "tokA"
+        return lens.parse_immersive(imm)
+    orig, lens.resolve = lens.resolve, fake
+    try:
+        asyncio.run(_resolve_shopping(Settings(), cands))
+    finally:
+        lens.resolve = orig
+    got = {c.canon: c for c in cands}
+    assert set(got) == {"https://www.myntra.com/47750458", "https://www.nykaafashion.com/x/p/18119651"}
+    assert got["https://www.myntra.com/47750458"].listing.price == 1199 and got["https://www.myntra.com/47750458"].score.level == "exact"

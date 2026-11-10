@@ -35,6 +35,7 @@ export default function SearchView({ id }: { id: string }) {
         if (!stop) setErr((e as Error).message);
       }
     };
+    try { window.localStorage.setItem("styletrail:last", id); } catch {}
     tick();
     // Coming back from a store tab: the extension may have added matches.
     const onFocus = () => { clearTimeout(timer); tick(); };
@@ -156,8 +157,9 @@ export default function SearchView({ id }: { id: string }) {
             <h2>Spotted on</h2>
             <p className="muted small">
               Google Lens saw your exact photo on these store pages. The item's own page isn't searchable yet.
-              With the <a href="/styletrail-extension.zip">StyleTrail extension</a> for Chrome, opening one of these
-              pages finds and highlights your piece for you, and adds its link and price to these results.
+              Open one and tap the <Link href="/finder">StyleTrail Finder</Link> bookmark (phone or computer), or use
+              the <a href="/styletrail-extension.zip">Chrome extension</a>: it highlights your piece and adds its link
+              and price to these results.
             </p>
             <ul>
               {s.stats.spotted.map((p) => (
@@ -172,6 +174,8 @@ export default function SearchView({ id }: { id: string }) {
             </ul>
           </div>
         )}
+
+        {s.status === "done" && <AddLink searchId={s.id} onAdded={() => api<SearchState>(`/api/searches/${s.id}`).then(setS)} />}
 
         {s.status === "done" && s.results.length === 0 && (
           <div className="empty">
@@ -224,5 +228,38 @@ export default function SearchView({ id }: { id: string }) {
         )}
       </section>
     </div>
+  );
+}
+
+
+function AddLink({ searchId, onAdded }: { searchId: string; onAdded: () => void }) {
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setMsg(null);
+    try {
+      await api("/api/ext/add-link", { method: "POST", body: JSON.stringify({ search_id: searchId, url }) });
+      setUrl("");
+      setMsg("Added to the top of your results.");
+      onAdded();
+    } catch (er) {
+      setMsg((er as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <form className="addlink" onSubmit={submit}>
+      <div className="field">
+        <label htmlFor="addlink">Found it yourself?</label>
+        <input id="addlink" className="input" required placeholder="Paste the product link, or the text shared from the Myntra app"
+          value={url} onChange={(e) => setUrl(e.target.value)} />
+      </div>
+      <button className="btn" disabled={busy}>{busy ? "Adding…" : "Add as exact match"}</button>
+      {msg && <p className="small" role="status" style={{ gridColumn: "1 / -1", margin: 0 }}>{msg}</p>}
+    </form>
   );
 }

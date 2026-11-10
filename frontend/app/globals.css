@@ -266,3 +266,17 @@ a.row-store { text-decoration: none; }
 @media (max-width: 560px) { .spotted a { grid-template-columns: 1fr auto; } .spotted .store { grid-column: 1 / -1; } }
 
 .drop-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+
+/* Finder setup page */
+.finder h2 { font-size: 1.35rem; }
+.finder h3 { font-family: inherit; font-size: 0.95rem; font-weight: 700; margin: 0 0 6px; }
+.finder ol { margin: 0; padding-left: 1.2rem; display: grid; gap: 6px; }
+.finder-copy { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.finder-code { font: 12px/1.4 ui-monospace, monospace; width: 100%; resize: none; color: var(--thread); }
+.finder-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; }
+.finder-steps > div { border-top: 1px solid var(--line); padding-top: 12px; }
+
+/* Found it yourself? */
+.addlink { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; margin: 8px 0 32px; }
+.addlink .field { min-width: 0; }
+@media (max-width: 560px) { .addlink { grid-template-columns: 1fr; } }

@@ -235,6 +235,43 @@ async def _verify(direct: Direct, bd: BrightData | None, s: Settings, image: byt
     return bool(verdicts)
 
 
+async def _resolve_shopping(s: Settings, cands: list[Candidate]) -> None:
+    """Google Shopping matches carry a placeholder link. Look up the real store link for the best
+    few; drop the rest (nothing to send the shopper to)."""
+    held = [c for c in cands if lens.is_placeholder(c.listing.url)]
+    if not held:
+        return
+    chosen = sorted([c for c in held if c.score and c.score.level in ("exact", "close")],
+                    key=lambda c: -c.score.score)[: s.serpapi_resolve_max]
+    found = await asyncio.gather(*[lens.resolve(s, c.listing.extra.get("immersive") or "") for c in chosen],
+                                 return_exceptions=True)
+    by_canon = {c.canon: c for c in cands if c not in held}
+    for c, stores in zip(chosen, found):
+        if isinstance(stores, Exception) or not stores:
+            continue
+        own = c.listing.extra.get("store_key")
+        stores.sort(key=lambda d: d["store"] != own)   # the feed's own store first
+        for j, d in enumerate(stores[:4]):
+            canon = canonical_url(d["url"])
+            price = d["price"] or (c.listing.price if j == 0 else None)
+            mrp = d["mrp"] or (c.listing.extra.get("mrp") if j == 0 else None)
+            ex = by_canon.get(canon)
+            if ex is None:
+                li = Listing(url=d["url"], title=c.listing.title, price=price, currency="INR", source=c.listing.source,
+                             channel="shopping", position=c.listing.position, extra={"mrp": mrp})
+                ex = by_canon[canon] = Candidate(canon=canon, listing=li, channels={"shopping"}, images=list(c.images),
+                                                 score=c.score, image_bytes=c.image_bytes)
+            else:
+                ex.channels.add("shopping")
+                if ex.score is None or c.score.score > ex.score.score:
+                    ex.score = c.score
+                if price and not ex.listing.price:
+                    ex.listing.price, ex.listing.currency = price, "INR"
+                    ex.listing.extra["mrp"] = mrp
+                ex.image_bytes = ex.image_bytes or c.image_bytes
+    cands[:] = list(by_canon.values())
+
+
 # --------------------------------------------------------------------------- pricing
 async def scrape_product(url: str, direct: Direct | None = None, bd: BrightData | None = None) -> ProductData | None:
     own = direct is None
@@ -341,6 +378,8 @@ async def run_search(search_id: str, settings: Settings | None = None,
             _update(search_id, attributes=attrs, progress=0.2,
                     stage="Searching Amazon, Flipkart, Tata CLiQ, Myntra, AJIO and brand stores")
             jobs = [direct.search_all(attrs["queries"], img_url, attrs.get("store_queries"))]
+            sq = attrs.get("store_queries") or attrs["queries"]
+            jobs.append(lens.shopping_search(s, [f"{sq[0]} myntra", sq[0]]))
             if bd:
                 jobs.append(_serp_text(bd, attrs["queries"]))
             for res in await asyncio.gather(*jobs, return_exceptions=True):
@@ -370,6 +409,8 @@ async def run_search(search_id: str, settings: Settings | None = None,
                 stage=f"Comparing {len(cands)} listings with your photo")
         qf = await qf_task
         checked = await _verify(direct, bd, s, image, qf, cands)
+
+        await _resolve_shopping(s, cands)
 
         best = sorted(cands, key=lambda c: -(c.score.score if c.score else 0))
         to_price = [c for c in best if c.score and c.score.level in ("exact", "close")][: s.max_product_pages]

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>StyleTrail Finder</title>
+<style>
+body{margin:0;padding:24px 16px;font:15px/1.5 system-ui,sans-serif;color:#1e2350;background:#fbf8f3}
+h1{font:400 1.5rem Georgia,serif;margin:0 0 8px;color:#c8215f}p{margin:0 0 10px}
+</style></head><body>
+<h1>StyleTrail Finder</h1>
+<p id="msg">Connecting…</p>
+<script>
+// Talks to the StyleTrail Finder running on a store page in this same browser.
+// The store page sends what it is showing you; this page passes it to the StyleTrail server.
+(function () {
+  var STORES = /^https:\/\/(www\.|m\.)?(myntra|ajio|nykaafashion|meesho)\.com$/;
+  var qs = new URLSearchParams(location.search);
+  var sid = qs.get("sid") || "";
+  try { sid = sid || localStorage.getItem("styletrail:last") || ""; } catch (e) {}
+  var peer = window.parent !== window ? window.parent : window.opener;
+  var msg = document.getElementById("msg");
+  if (window.parent === window) {
+    msg.textContent = peer ? "Connected. Go back to the store tab and scroll; your piece gets highlighted there."
+                           : "Open this from the StyleTrail Finder on a store page.";
+  }
+  function reply(src, origin, data) { try { src.postMessage(data, origin); } catch (e) {} }
+  async function call(path, body) {
+    var r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    var d = await r.json().catch(function () { return {}; });
+    if (!r.ok) throw new Error(d.detail || ("Server error " + r.status));
+    return d;
+  }
+  window.addEventListener("message", async function (e) {
+    if (!STORES.test(e.origin)) return;
+    var d = e.data || {};
+    try {
+      if (d.type === "stt-tiles") {
+        var id = d.sid || sid;
+        if (!id) throw new Error("Open your StyleTrail search on this phone first, then come back and tap Finder.");
+        var res = await call("/api/ext/match", { search_id: id, tiles: d.tiles });
+        reply(e.source, e.origin, { type: "stt-result", sid: id, checked: res.checked, matches: res.matches });
+      } else if (d.type === "stt-observe") {
+        var o = await call("/api/ext/observe", d.page);
+        reply(e.source, e.origin, { type: "stt-observed", price: o.price, recorded: o.recorded });
+      }
+    } catch (err) {
+      reply(e.source, e.origin, { type: "stt-error", error: String(err.message || err) });
+    }
+  });
+  if (peer) peer.postMessage({ type: "stt-ready" }, "*");
+})();
+</script>
+</body></html>
