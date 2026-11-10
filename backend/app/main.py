@@ -25,6 +25,8 @@ from .services.pricing import THUMB_IDS as _THUMBS, apply_page_data, get_or_crea
 from .services.stores import STORES, is_product_url, store_for
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+# httpx logs full request URLs at INFO, and some carry API keys (SerpApi, Vision).
+logging.getLogger("httpx").setLevel(logging.WARNING)
 settings = get_settings()
 
 

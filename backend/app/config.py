@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     brightdata_serp_zone_password: str = ""
     # --- Lens (reverse image search); keys may also live in AWS SSM Parameter Store /styletrail/ ---
     serpapi_key: str = ""                 # SerpApi Google Lens
-    serpapi_lens_types: str = "exact_matches,products"
+    serpapi_lens_types: str = "exact_matches,visual_matches"
     google_vision_key: str = ""           # Google Cloud Vision WEB_DETECTION
     country: str = "in"
     language: str = "en"

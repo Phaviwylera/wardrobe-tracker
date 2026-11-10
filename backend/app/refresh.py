@@ -117,5 +117,6 @@ def _email(to: str, p: Product) -> None:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     init_db()
     print(asyncio.run(refresh()))
