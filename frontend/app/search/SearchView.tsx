@@ -36,7 +36,10 @@ export default function SearchView({ id }: { id: string }) {
       }
     };
     tick();
-    return () => { stop = true; clearTimeout(timer); };
+    // Coming back from a store tab: the extension may have added matches.
+    const onFocus = () => { clearTimeout(timer); tick(); };
+    window.addEventListener("focus", onFocus);
+    return () => { stop = true; clearTimeout(timer); window.removeEventListener("focus", onFocus); };
   }, [id]);
 
   const storeNames = useMemo(
@@ -152,13 +155,14 @@ export default function SearchView({ id }: { id: string }) {
           <div className="spotted">
             <h2>Spotted on</h2>
             <p className="muted small">
-              Google Lens saw your exact photo on these store pages. The item's own page isn't searchable yet, so
-              open one and look for this piece in the grid.
+              Google Lens saw your exact photo on these store pages. The item's own page isn't searchable yet.
+              With the <a href="/styletrail-extension.zip">StyleTrail extension</a> for Chrome, opening one of these
+              pages finds and highlights your piece for you, and adds its link and price to these results.
             </p>
             <ul>
               {s.stats.spotted.map((p) => (
                 <li key={p.url}>
-                  <a href={p.url} target="_blank" rel="noopener noreferrer">
+                  <a href={`${p.url.split("#")[0]}#styletrail=${s.id}`} target="_blank" rel="noopener noreferrer">
                     <span className="store">{p.store}</span>
                     <span className="title">{p.title}</span>
                     <span aria-hidden="true" className="arrow">↗</span>

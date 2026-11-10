@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "StyleTrail for Myntra",
+  "version": "1.0.0",
+  "description": "Finds the exact piece from your StyleTrail photo on Myntra pages you open, and adds Myntra prices to your price history.",
+  "icons": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "action": { "default_popup": "popup.html", "default_title": "StyleTrail" },
+  "background": { "service_worker": "background.js" },
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://www.myntra.com/*",
+    "https://assets.myntassets.com/*",
+    "https://d33xenhft9gbmu.cloudfront.net/*"
+  ],
+  "content_scripts": [{
+    "matches": ["https://www.myntra.com/*"],
+    "js": ["content.js"],
+    "css": ["content.css"],
+    "run_at": "document_idle"
+  }]
+}

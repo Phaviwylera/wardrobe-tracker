@@ -1,0 +1,17 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+body { width: 280px; margin: 0; padding: 14px; font: 13px/1.4 system-ui, sans-serif; color: #1e2350; background: #fbf8f3; }
+h1 { font-size: 15px; margin: 0 0 8px; color: #c8215f; }
+p { margin: 0 0 10px; }
+label { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+a, button { font: 600 12px system-ui, sans-serif; }
+button { background: #1e2350; color: #fbf8f3; border: 0; border-radius: 4px; padding: 6px 10px; cursor: pointer; }
+.muted { color: #6c6a7b; font-size: 12px; }
+</style></head><body>
+<h1>StyleTrail</h1>
+<p id="status">Loading…</p>
+<label><input type="checkbox" id="paused"> Pause matching on Myntra</label>
+<p><button id="clear">Forget current search</button></p>
+<p class="muted">Open a Myntra link from a StyleTrail "Spotted on" list and this extension looks for your piece on that page. Myntra product pages you open add their price to your StyleTrail price history.</p>
+<script src="popup.js"></script>
+</body></html>

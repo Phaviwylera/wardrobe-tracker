@@ -181,3 +181,35 @@ def test_lens_parsers():
     pv = parse_vision(v)
     assert pv[0].channel == "lens:exact_matches" and pv[0].title == "Buy Atelier Rebel Top"
     assert pv[1].channel == "lens:products" and pv[1].image_url.endswith("b.jpg")
+
+
+def test_extension_match_and_observe():
+    from fastapi.testclient import TestClient
+
+    from app.db import SessionLocal, init_db
+    from app.main import app
+    from app.models import QueryImage, Search
+
+    init_db()
+    with SessionLocal() as db:
+        qi = QueryImage(data=_bytes(_garment()), width=480, height=640)
+        db.add(qi); db.flush()
+        s = Search(image_id=qi.id, client_id="client-ext", status="done")
+        db.add(s); db.commit()
+        sid = s.id
+    c = TestClient(app)
+    same = base64.b64encode(_bytes(_garment().resize((300, 400)))).decode()
+    other = base64.b64encode(_bytes(_garment(colour=(40, 160, 70), seed=7))).decode()
+    r = c.post("/api/ext/match", json={"search_id": sid, "tiles": [
+        {"url": "https://www.myntra.com/tops/atelier+rebel/x/47750458/buy", "title": "Atelier Rebel Top",
+         "price": "Rs. 1299", "mrp": "Rs. 2599", "image_b64": same},
+        {"url": "https://www.myntra.com/tops/x/y/12345678/buy", "title": "Other", "image_b64": other},
+        {"url": "https://www.myntra.com/women-tops", "title": "grid", "image_b64": same}]}).json()
+    assert r["checked"] == 2 and [m["level"] for m in r["matches"]] == ["exact"]
+    res = c.get(f"/api/searches/{sid}").json()["results"]
+    assert "47750458" in res[0]["product"]["url"] and res[0]["match_level"] == "exact"
+    assert res[0]["product"]["current_price"] == 1299
+    state = '<script>window.__myx = {"pdpData": {"name": "Tie-Up Neck Top", "brand": {"name": "Atelier Rebel"}, "price": {"mrp": 2599, "discounted": 1199}, "sizes": [{"label": "S", "available": true}]}};</script>'
+    o = c.post("/api/ext/observe", json={"url": "https://www.myntra.com/tops/atelier+rebel/x/47750458/buy", "state_script": state}).json()
+    assert o["price"] == 1199 and o["in_stock"] is True and o["product_id"] == res[0]["product"]["id"]
+    assert c.post("/api/ext/observe", json={"url": "https://example.com/x", "price": 1}).status_code == 400

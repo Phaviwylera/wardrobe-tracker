@@ -1,0 +1,20 @@
+.stt-hit { position: relative; outline: 3px solid #c8215f !important; outline-offset: 2px; border-radius: 4px; }
+.stt-hit-close { outline-color: #6c6a7b !important; outline-style: dashed !important; }
+.stt-hit::before {
+  content: attr(data-stt); position: absolute; z-index: 5; top: 8px; left: 8px;
+  background: #c8215f; color: #fff; font: 600 12px/1 system-ui, sans-serif; padding: 6px 8px; border-radius: 3px;
+}
+.stt-hit-close::before { background: #1e2350; }
+.stt-panel {
+  position: fixed; z-index: 2147483000; right: 16px; bottom: 16px; max-width: 320px;
+  display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center;
+  background: #fbf8f3; color: #1e2350; border: 1.5px solid #1e2350; border-radius: 6px;
+  padding: 10px 12px; font: 13px/1.35 system-ui, sans-serif; box-shadow: 0 6px 24px rgba(30, 35, 80, .18);
+}
+.stt-panel strong { font-weight: 700; color: #c8215f; }
+.stt-panel span { flex: 1 1 100%; }
+.stt-panel button, .stt-panel a {
+  font: 600 12px system-ui, sans-serif; color: #fbf8f3; background: #1e2350; border: 0; border-radius: 4px;
+  padding: 6px 10px; cursor: pointer; text-decoration: none;
+}
+.stt-panel a { background: transparent; color: #1e2350; box-shadow: inset 0 0 0 1.5px #1e2350; }

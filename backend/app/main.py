@@ -56,6 +56,10 @@ app.add_middleware(
 MAX_UPLOAD = 12 * 1024 * 1024
 _recent: dict[str, deque] = defaultdict(deque)
 
+from .extension_api import router as _ext_router  # noqa: E402
+
+app.include_router(_ext_router)
+
 
 def _client(x_client_id: str | None = Header(default=None)) -> str:
     cid = (x_client_id or "").strip()
@@ -249,7 +253,7 @@ def get_search(search_id: str, db: Session = Depends(get_db)) -> dict:
     s = db.get(Search, search_id)
     if not s:
         raise HTTPException(404, "Search not found")
-    results = s.results if s.status == "done" else []
+    results = sorted(s.results, key=lambda r: (r.rank, -r.score)) if s.status == "done" else []
     spark = _spark(db, [r.product_id for r in results])
     return {
         "id": s.id, "image_id": s.image_id, "status": s.status, "stage": s.stage,

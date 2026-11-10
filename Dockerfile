@@ -17,5 +17,8 @@ COPY backend/requirements.txt ./
 RUN pip install -r requirements.txt
 COPY backend/ ./
 COPY --from=web /web/out ./static
+# Browser extension, offered as a download on the results page
+COPY extension/ /tmp/ext/
+RUN python -c "import shutil; shutil.make_archive('/app/static/styletrail-extension', 'zip', '/tmp/ext')" && rm -rf /tmp/ext
 EXPOSE 10000
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000} --proxy-headers --forwarded-allow-ips='*'"]

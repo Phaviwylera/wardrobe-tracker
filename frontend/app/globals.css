@@ -264,3 +264,5 @@ a.row-store { text-decoration: none; }
 .spotted .title { min-width: 0; overflow-wrap: anywhere; }
 .spotted .arrow { color: var(--thread); }
 @media (max-width: 560px) { .spotted a { grid-template-columns: 1fr auto; } .spotted .store { grid-column: 1 / -1; } }
+
+.drop-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }

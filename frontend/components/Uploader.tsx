@@ -49,6 +49,31 @@ export default function Uploader() {
     return () => window.removeEventListener("paste", onPaste);
   }, [take]);
 
+  // "Paste photo" button: reads an image from the clipboard (the browser asks permission once).
+  async function pasteFromClipboard(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setError(null);
+    if (!navigator.clipboard?.read) {
+      setError("This browser can't read the clipboard from a button. Press Ctrl+V (or ⌘V) on this page instead.");
+      return;
+    }
+    try {
+      for (const item of await navigator.clipboard.read()) {
+        const type = item.types.find((t) => t.startsWith("image/"));
+        if (type) {
+          const blob = await item.getType(type);
+          const ext = type.split("/")[1] || "png";
+          take(new File([blob], `pasted.${ext}`, { type }));
+          return;
+        }
+      }
+      setError("There's no photo on your clipboard. Copy the image itself (right-click it, then Copy image) and try again.");
+    } catch {
+      setError("Clipboard access was blocked. Allow it when the browser asks, or press Ctrl+V (or ⌘V) on this page.");
+    }
+  }
+
   const point = (e: React.PointerEvent) => {
     const r = stageRef.current!.getBoundingClientRect();
     return {
@@ -146,8 +171,11 @@ export default function Uploader() {
           <path d="M26 36h12M26 43h8" stroke="#c8215f" strokeWidth="2.5" strokeLinecap="round" />
         </svg>
         <span className="drop-title">Drop a photo of the outfit</span>
-        <span className="btn">Choose photo</span>
-        <span className="drop-hint">Screenshots from Instagram work. You can also paste one.</span>
+        <span className="drop-actions">
+          <span className="btn">Choose photo</span>
+          <button type="button" className="btn quiet" onClick={pasteFromClipboard}>Paste photo</button>
+        </span>
+        <span className="drop-hint">Screenshots from Instagram work. Or press Ctrl+V (⌘V on Mac) anywhere on this page.</span>
         {error && <span className="notice small" role="alert">{error}</span>}
       </label>
     </div>
