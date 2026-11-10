@@ -149,6 +149,7 @@ def is_placeholder(url: str) -> bool:
 
 def parse_shopping(doc: dict) -> list[Listing]:
     out: list[Listing] = []
+    seen_thumbs: set = set()
     for i, it in enumerate(doc.get("shopping_results") or []):
         st = _store_by_source(it.get("source") or "")
         pid, token = it.get("product_id"), it.get("immersive_product_page_token")
@@ -159,7 +160,11 @@ def parse_shopping(doc: dict) -> list[Listing]:
             continue
         mrp, _ = parse_price(it.get("extracted_old_price") or it.get("old_price"))
         title = re.sub(r"['\"()]*\s*by\s+" + re.escape(st.name) + r"['\"]*\s*$", "", it.get("title") or "", flags=re.I)
-        title = re.sub(r"['\"]+$", "", title).strip()
+        title = re.sub(r"['\"(]+\s*[A-Za-z0-9]{0,4}\s*[)'\"]*$", "", title).strip()   # size left over by the feed: '('M
+        thumb = it.get("thumbnail")
+        if thumb in seen_thumbs:      # one feed row per size; keep the first
+            continue
+        seen_thumbs.add(thumb)
         out.append(Listing(url=f"https://www.{st.domains[0]}{GSHOP}{pid}", title=title[:300], price=price,
                            currency="INR" if (it.get("price") or "").strip().startswith("₹") else (cur or "INR"),
                            image_url=it.get("thumbnail"), source=st.name, channel="shopping", position=i + 1,
@@ -204,7 +209,7 @@ def parse_immersive(doc: dict) -> list[dict]:
         elif isinstance(cur, dict):
             link = cur.get("link")
             if isinstance(link, str) and link.startswith("http") and cur.get("name"):
-                link = link.split("?srsltid=")[0].split("&srsltid=")[0]
+                link = re.sub(r"^http://", "https://", link.split("?srsltid=")[0].split("&srsltid=")[0])
                 st = store_for(link)
                 if st.key != "other" and is_product_url(link) and link not in seen:
                     seen.add(link)

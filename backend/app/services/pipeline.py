@@ -35,6 +35,7 @@ CHANNEL_RANK = {"lens:exact_matches": 0, "lens:products": 1, "store": 2, "shoppi
                 "web": 3, "organic": 3, "lens:visual_matches": 4}
 MIN_SCORE = 0.30
 CLAUDE_CHECK = 36  # candidates the vision model double-checks per search
+FEED_CHECK = 10    # of which: Google Shopping store-feed items (Myntra, AJIO, Nykaa Fashion)
 
 
 @dataclass
@@ -213,7 +214,11 @@ async def _verify(direct: Direct, bd: BrightData | None, s: Settings, image: byt
     def priority(c: Candidate) -> float:
         bonus = 0.15 if c.listing.position <= 3 else (0.08 if c.listing.position <= 8 else 0.0)
         return c.score.score + bonus
-    pool = sorted([c for c in cands if c.image_bytes and not _identical(c)], key=priority, reverse=True)[:CLAUDE_CHECK]
+    ready = [c for c in cands if c.image_bytes and not _identical(c)]
+    # Store-feed thumbnails are too small for pixel matching, so the top few always get the AI check.
+    feed = sorted([c for c in ready if lens.is_placeholder(c.listing.url)], key=lambda c: c.listing.position)[:FEED_CHECK]
+    rest = sorted([c for c in ready if c not in feed], key=priority, reverse=True)[:CLAUDE_CHECK - len(feed)]
+    pool = rest + feed
     verdicts = await captioner.verify(image, [c.image_bytes for c in pool], s)
     for i, c in enumerate(pool):
         if i not in verdicts:

@@ -63,6 +63,7 @@ STORES: list[Store] = [
     Store("shein", "SHEIN India", ("sheinindia.in", "shein.in"), r"/p/|-p-\d+"),
     Store("savana", "Savana", ("savana.com",), r"/details/|/product/"),
     Store("forever21", "Forever 21 India", ("forever21.in",), r"/products/|/p/"),
+    Store("temu", "Temu", ("temu.com",), r"-g-\d+\.html", tier=2),
     Store("etsy", "Etsy", ("etsy.com",), r"/listing/\d+", tier=2),
 ]
 
