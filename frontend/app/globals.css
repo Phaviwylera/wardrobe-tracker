@@ -252,3 +252,15 @@ a.row-store { text-decoration: none; }
   .brand-word { font-size: 1.35rem; }
   .stats dd { font-size: 1.2rem; }
 }
+
+/* Spotted on: store pages where Lens saw the exact photo */
+.spotted { margin: 0 0 36px; padding: 18px 0 6px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.spotted h2 { margin: 0 0 4px; font-family: var(--display); font-size: 1.35rem; }
+.spotted ul { list-style: none; margin: 12px 0 0; padding: 0; }
+.spotted li + li { border-top: 1px dashed var(--line); }
+.spotted a { display: grid; grid-template-columns: 7.5rem 1fr auto; gap: 12px; align-items: baseline; padding: 11px 0; color: inherit; text-decoration: none; }
+.spotted a:hover .title { text-decoration: underline; text-underline-offset: 3px; }
+.spotted .store { color: var(--thread); font-size: 0.85rem; letter-spacing: 0.04em; text-transform: uppercase; }
+.spotted .title { min-width: 0; overflow-wrap: anywhere; }
+.spotted .arrow { color: var(--thread); }
+@media (max-width: 560px) { .spotted a { grid-template-columns: 1fr auto; } .spotted .store { grid-column: 1 / -1; } }

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -73,6 +74,31 @@ async def _lens(bd: BrightData, s: Settings, image_id: str, image: bytes, tab: s
     except BrightDataError as e:
         log.warning("lens %s failed: %s", tab, e)
         return []
+
+
+def _spotted(listings: list[Listing], limit: int = 8) -> list[dict]:
+    """Store pages (category / listing grids) where Lens saw the exact photo but that aren't a product page.
+
+    The product page itself may not be indexed yet; the shopper can open the grid and tap the item.
+    """
+    out: list[dict] = []
+    seen: set[str] = set()
+    for li in listings:
+        if li.channel != "lens:exact_matches" or is_product_url(li.url) or is_non_shop(li.url):
+            continue
+        st = store_for(li.url)
+        if st.key == "other":
+            continue
+        key = li.url.split("?")[0].rstrip("/")
+        if key in seen:
+            continue
+        seen.add(key)
+        title = re.sub(r"\s*[|\-–]\s*" + re.escape(st.name) + r".*$", "", li.title or "", flags=re.I)
+        title = re.sub(r"^Buy\s+|\s+online.*$|\s+Online.*$", "", title, flags=re.I).strip() or st.name
+        out.append({"url": li.url, "title": title[:90], "store": st.name})
+        if len(out) >= limit:
+            break
+    return out
 
 
 async def _serp_text(bd: BrightData, queries: list[str]) -> list[Listing]:
@@ -330,12 +356,14 @@ async def run_search(search_id: str, settings: Settings | None = None,
             else:
                 listings += group
 
+        spotted = _spotted(listings)
         cands = _collect(listings, s.max_candidates)
         if not cands:
             _update(search_id, status="done", stage="No shops found for this photo", progress=1.0,
                     finished_at=datetime.now(timezone.utc),
                     stats={"listings": len(listings), "candidates": 0, "results": 0,
-                           "seconds": round(time.monotonic() - t0, 1), "errors": direct.errors})
+                           "seconds": round(time.monotonic() - t0, 1), "errors": direct.errors,
+                           "spotted": spotted})
             return
 
         _update(search_id, status="verifying", progress=0.45,
@@ -350,7 +378,8 @@ async def run_search(search_id: str, settings: Settings | None = None,
 
         stats = _persist(search_id, cands)
         stats.update(listings=len(listings), candidates=len(cands), seconds=round(time.monotonic() - t0, 1),
-                     captioned=bool(attrs), claude_checked=checked, errors=direct.errors)
+                     captioned=bool(attrs), claude_checked=checked, errors=direct.errors,
+                     spotted=spotted)
         _update(search_id, status="done", stage="Done", progress=1.0, stats=stats,
                 finished_at=datetime.now(timezone.utc))
     except Exception as e:

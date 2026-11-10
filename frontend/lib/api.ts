@@ -54,7 +54,8 @@ export type SearchState = {
   progress: number;
   error: string | null;
   attributes: Attributes | null;
-  stats: { results?: number; candidates?: number; listings?: number; priced?: number; seconds?: number } | null;
+  stats: { results?: number; candidates?: number; listings?: number; priced?: number; seconds?: number;
+    spotted?: { url: string; title: string; store: string }[] } | null;
   created_at: string;
   results: Result[];
 };

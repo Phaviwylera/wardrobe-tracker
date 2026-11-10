@@ -175,3 +175,15 @@ def test_identical_photo_survives_screenshot_borders():
     c2 = Candidate(canon="b", listing=Listing(url="b")); c2.score = recol
     assert _identical(c1), same.signals
     assert not _identical(c2), recol.signals
+
+
+def test_spotted_pages():
+    from app.services.pipeline import _spotted
+    from app.services.serp_parse import Listing
+    ls = [Listing(url="https://www.myntra.com/bell-sleeved-tops", title="Buy Bell Sleeved Tops for Women Online - Myntra", channel="lens:exact_matches"),
+          Listing(url="https://www.myntra.com/bell-sleeved-tops?p=2", title="dup", channel="lens:exact_matches"),
+          Listing(url="https://www.myntra.com/tops/x/y/47750458/buy", title="product", channel="lens:exact_matches"),
+          Listing(url="https://in.pinterest.com/pin/1", title="pin", channel="lens:exact_matches"),
+          Listing(url="https://www.myntra.com/women-tops", title="Women tops", channel="lens:visual_matches")]
+    got = _spotted(ls)
+    assert got == [{"url": "https://www.myntra.com/bell-sleeved-tops", "title": "Bell Sleeved Tops for Women", "store": "Myntra"}]

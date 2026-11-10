@@ -148,6 +148,27 @@ export default function SearchView({ id }: { id: string }) {
           </div>
         )}
 
+        {s.status === "done" && !!s.stats?.spotted?.length && (
+          <div className="spotted">
+            <h2>Spotted on</h2>
+            <p className="muted small">
+              Google Lens saw your exact photo on these store pages. The item's own page isn't searchable yet, so
+              open one and look for this piece in the grid.
+            </p>
+            <ul>
+              {s.stats.spotted.map((p) => (
+                <li key={p.url}>
+                  <a href={p.url} target="_blank" rel="noopener noreferrer">
+                    <span className="store">{p.store}</span>
+                    <span className="title">{p.title}</span>
+                    <span aria-hidden="true" className="arrow">↗</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {s.status === "done" && s.results.length === 0 && (
           <div className="empty">
             <h2>No shops found for this photo</h2>
